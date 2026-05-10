@@ -1,0 +1,32 @@
+server:
+  port: ${JAVA_API_PORT:8620}
+
+agent:
+  service-url: ${AGENT_SERVICE_URL:http://localhost:8000}
+  internal-token: ${AGENT_INTERNAL_TOKEN:local-dev-internal-token}
+  connect-timeout-ms: ${AGENT_CONNECT_TIMEOUT_MS:3000}
+  read-timeout-ms: ${AGENT_READ_TIMEOUT_MS:180000}
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:200MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:220MB}
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/agent_platform?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8}
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+security:
+  ai-key-secret: ${AI_KEY_SECRET:local-dev-ai-key-secret}
+
+upload:
+  storage-root-dir: ${UPLOAD_STORAGE_ROOT_DIR:storage/uploads}
+  max-image-bytes: ${UPLOAD_MAX_IMAGE_BYTES:10485760}
+  max-video-bytes: ${UPLOAD_MAX_VIDEO_BYTES:209715200}
+  max-document-bytes: ${UPLOAD_MAX_DOCUMENT_BYTES:20971520}

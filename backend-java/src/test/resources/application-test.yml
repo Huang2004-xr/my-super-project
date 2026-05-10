@@ -1,0 +1,36 @@
+server:
+  port: 0
+
+agent:
+  service-url: http://localhost:8000
+  internal-token: autotest_internal_token
+  connect-timeout-ms: 200
+  read-timeout-ms: 500
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 1MB
+      max-request-size: 2MB
+  datasource:
+    url: jdbc:h2:mem:autotest_agent_platform;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+  sql:
+    init:
+      mode: never
+
+security:
+  ai-key-secret: autotest_ai_key_secret
+
+upload:
+  storage-root-dir: target/autotest_uploads
+  max-image-bytes: 1048576
+  max-video-bytes: 2097152
+  max-document-bytes: 1048576
