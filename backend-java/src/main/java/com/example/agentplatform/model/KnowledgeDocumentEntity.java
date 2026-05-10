@@ -5,6 +5,7 @@ import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
+import javax.persistence.Transient;
 
 @Entity
 @Table(name = "knowledge_documents")
@@ -52,6 +53,9 @@ public class KnowledgeDocumentEntity {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    @Transient
+    private Long sizeBytes;
+
     public String getDocumentId() { return documentId; }
     public void setDocumentId(String documentId) { this.documentId = documentId; }
     public String getKnowledgeBaseId() { return knowledgeBaseId; }
@@ -80,4 +84,6 @@ public class KnowledgeDocumentEntity {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Long getSizeBytes() { return sizeBytes; }
+    public void setSizeBytes(Long sizeBytes) { this.sizeBytes = sizeBytes; }
 }

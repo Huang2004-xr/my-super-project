@@ -24,6 +24,10 @@
         <logback.version>1.2.13</logback.version>
         <!-- CVE-2022-25857 (HIGH): fixed in 1.31; using 1.33 (latest 1.x) -->
         <snakeyaml.version>1.33</snakeyaml.version>
+        <!-- CVE-2025-52999 (HIGH): fixed in 2.15.0+; override Jackson BOM -->
+        <jackson-bom.version>2.15.4</jackson-bom.version>
+        <!-- CVE-2026-24400 (HIGH): fixed in 3.27.7; test scope only -->
+        <assertj.version>3.27.7</assertj.version>
     </properties>
     <dependencies>
         <dependency>

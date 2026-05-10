@@ -8,7 +8,9 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -103,7 +105,9 @@ public class KnowledgeBaseService {
 
     public List<KnowledgeDocumentEntity> listDocuments(String userId, String knowledgeBaseId) {
         requireKnowledgeBase(userId, knowledgeBaseId);
-        return knowledgeDocumentRepository.findByKnowledgeBaseIdAndUserIdOrderByCreatedAtDesc(knowledgeBaseId, userId);
+        List<KnowledgeDocumentEntity> documents = knowledgeDocumentRepository.findByKnowledgeBaseIdAndUserIdOrderByCreatedAtDesc(knowledgeBaseId, userId);
+        hydrateDocumentSizes(userId, documents);
+        return documents;
     }
 
     public KnowledgeDocumentEntity uploadDocument(String userId, String knowledgeBaseId, MultipartFile file) throws IOException {
@@ -134,6 +138,7 @@ public class KnowledgeBaseService {
         document.setFileName(fileName);
         document.setFileType(fileType(fileName));
         document.setMimeType(contentType);
+        document.setSizeBytes(fileAsset.getSizeBytes());
         document.setParseStatus("QUEUED");
         document.setIndexStatus("PENDING");
         document.setChunkCount(0);
@@ -145,6 +150,31 @@ public class KnowledgeBaseService {
         knowledgeBaseRepository.save(knowledgeBase);
         knowledgeIndexWorkerService.indexDocumentAsync(userId, knowledgeBaseId, saved.getDocumentId());
         return saved;
+    }
+
+    private void hydrateDocumentSizes(String userId, List<KnowledgeDocumentEntity> documents) {
+        List<String> fileAssetIds = new ArrayList<>();
+        for (KnowledgeDocumentEntity document : documents) {
+            if (document.getFileAssetId() != null && !document.getFileAssetId().trim().isEmpty()) {
+                fileAssetIds.add(document.getFileAssetId());
+            }
+        }
+        if (fileAssetIds.isEmpty()) {
+            return;
+        }
+
+        List<FileAssetEntity> fileAssets = fileAssetRepository.findByUserIdAndAssetTypeAndFileAssetIdIn(userId, "DOCUMENT", fileAssetIds);
+        Map<String, Long> sizeByAssetId = new HashMap<>();
+        for (FileAssetEntity fileAsset : fileAssets) {
+            sizeByAssetId.put(fileAsset.getFileAssetId(), fileAsset.getSizeBytes());
+        }
+
+        for (KnowledgeDocumentEntity document : documents) {
+            if (document.getFileAssetId() == null) {
+              continue;
+            }
+            document.setSizeBytes(sizeByAssetId.get(document.getFileAssetId()));
+        }
     }
 
     public KnowledgeSearchResponse search(String userId, String knowledgeBaseId, String query, int topK) {
