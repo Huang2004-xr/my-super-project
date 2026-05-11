@@ -228,6 +228,7 @@
   padding: 12px 10px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
 }
 
 .admin-table th {
@@ -246,6 +247,31 @@
   background: color-mix(in srgb, var(--accent-weak) 60%, transparent);
 }
 
+.admin-table-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-inline-button {
+  min-height: 30px;
+  padding: 4px 10px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+}
+
+.admin-inline-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.admin-inline-button.danger:hover {
+  color: #fff2f2;
+  border-color: #d74f4f;
+  background: rgba(176, 42, 42, 0.7);
+}
+
 .admin-runs-layout {
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
   align-items: start;
@@ -254,6 +280,59 @@
 .admin-detail-panel {
   position: sticky;
   top: 0;
+}
+
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(8px);
+}
+
+.admin-modal-card {
+  width: min(560px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--panel-bg);
+  box-shadow: 0 24px 50px color-mix(in srgb, var(--shadow) 80%, transparent);
+}
+
+.admin-user-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-user-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-user-form label span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-user-form input,
+.admin-user-form select {
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  grid-column: 1 / -1;
+  margin-top: 4px;
 }
 
 .admin-detail-block {
@@ -293,6 +372,10 @@
   .admin-health-grid,
   .admin-two-column,
   .admin-runs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-user-form {
     grid-template-columns: 1fr;
   }
 }

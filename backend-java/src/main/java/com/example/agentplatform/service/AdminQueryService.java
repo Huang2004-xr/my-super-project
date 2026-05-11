@@ -1,9 +1,11 @@
 package com.example.agentplatform.service;
 
 import com.example.agentplatform.dto.admin.AdminDashboardResponse;
+import com.example.agentplatform.dto.admin.AdminCreateUserRequest;
 import com.example.agentplatform.dto.admin.AdminPageResponse;
 import com.example.agentplatform.dto.admin.AdminRunListItemDto;
 import com.example.agentplatform.dto.admin.AdminSummaryDto;
+import com.example.agentplatform.dto.admin.AdminUpdateUserRequest;
 import com.example.agentplatform.model.AgentRun;
 import com.example.agentplatform.model.KnowledgeBaseEntity;
 import com.example.agentplatform.model.KnowledgeDocumentEntity;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -107,6 +110,74 @@ public class AdminQueryService {
                 .map(authService::toDto)
                 .collect(Collectors.toList());
         return page(items, page, size);
+    }
+
+    public UserDto createUser(AdminCreateUserRequest request) {
+        String username = required(request.username, "username");
+        String password = required(request.password, "password");
+        String role = defaultIfBlank(request.role, "USER");
+        String status = defaultIfBlank(request.status, "ACTIVE");
+
+        if (userRepository.existsByUsername(username)) {
+            throw new IllegalArgumentException("username already exists");
+        }
+
+        UserEntity entity = new UserEntity();
+        entity.setUserId(UUID.randomUUID().toString());
+        entity.setUsername(username);
+        entity.setPasswordHash(authService.hashPassword(password));
+        entity.setEmail(normalizeNullable(request.email));
+        entity.setPhone(normalizeNullable(request.phone));
+        entity.setRole(normalizeRole(role));
+        entity.setStatus(normalizeStatus(status));
+        return authService.toDto(userRepository.save(entity));
+    }
+
+    public UserDto updateUser(String userId, AdminUpdateUserRequest request, String currentAdminUserId) {
+        UserEntity entity = userRepository.findById(userId)
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + userId));
+
+        if (request.username != null) {
+            String username = required(request.username, "username");
+            if (!username.equals(entity.getUsername()) && userRepository.existsByUsername(username)) {
+                throw new IllegalArgumentException("username already exists");
+            }
+            entity.setUsername(username);
+        }
+        if (request.password != null && !request.password.trim().isEmpty()) {
+            entity.setPasswordHash(authService.hashPassword(request.password.trim()));
+        }
+        if (request.email != null) {
+            entity.setEmail(normalizeNullable(request.email));
+        }
+        if (request.phone != null) {
+            entity.setPhone(normalizeNullable(request.phone));
+        }
+        if (request.role != null) {
+            String nextRole = normalizeRole(request.role);
+            if (entity.getUserId().equals(currentAdminUserId) && !"ADMIN".equals(nextRole)) {
+                throw new IllegalArgumentException("cannot remove your own admin role");
+            }
+            entity.setRole(nextRole);
+        }
+        if (request.status != null) {
+            String nextStatus = normalizeStatus(request.status);
+            if (entity.getUserId().equals(currentAdminUserId) && !"ACTIVE".equals(nextStatus)) {
+                throw new IllegalArgumentException("cannot disable your own account");
+            }
+            entity.setStatus(nextStatus);
+        }
+
+        return authService.toDto(userRepository.save(entity));
+    }
+
+    public void deleteUser(String userId, String currentAdminUserId) {
+        UserEntity entity = userRepository.findById(userId)
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + userId));
+        if (entity.getUserId().equals(currentAdminUserId)) {
+            throw new IllegalArgumentException("cannot delete your own account");
+        }
+        userRepository.delete(entity);
     }
 
     public AdminPageResponse<AdminRunListItemDto> listRuns(
@@ -226,6 +297,41 @@ public class AdminQueryService {
 
     private boolean contains(String value, String keyword) {
         return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
+    }
+
+    private String required(String value, String fieldName) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(fieldName + " is required");
+        }
+        return value.trim();
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    private String normalizeNullable(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizeRole(String role) {
+        String normalized = required(role, "role").toUpperCase(Locale.ROOT);
+        if (!"USER".equals(normalized) && !"ADMIN".equals(normalized)) {
+            throw new IllegalArgumentException("unsupported role: " + role);
+        }
+        return normalized;
+    }
+
+    private String normalizeStatus(String status) {
+        String normalized = required(status, "status").toUpperCase(Locale.ROOT);
+        if (!"ACTIVE".equals(normalized) && !"DISABLED".equals(normalized)) {
+            throw new IllegalArgumentException("unsupported status: " + status);
+        }
+        return normalized;
     }
 
     private <T> AdminPageResponse<T> page(List<T> items, int page, int size) {

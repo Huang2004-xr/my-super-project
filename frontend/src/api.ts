@@ -200,6 +200,34 @@ export const fetchAdminUsers = (params: {
   size?: number;
 } = {}) => request<AdminPageResponse<User>>(`/api/admin/users${buildQuery(params)}`);
 
+export const createAdminUser = (payload: {
+  username: string;
+  password: string;
+  email?: string | null;
+  phone?: string | null;
+  role: 'USER' | 'ADMIN';
+  status: 'ACTIVE' | 'DISABLED';
+}) => request<User>('/api/admin/users', {
+  method: 'POST',
+  body: JSON.stringify(payload)
+});
+
+export const updateAdminUser = (userId: string, payload: {
+  username: string;
+  password?: string;
+  email?: string | null;
+  phone?: string | null;
+  role: 'USER' | 'ADMIN';
+  status: 'ACTIVE' | 'DISABLED';
+}) => request<User>(`/api/admin/users/${encodeURIComponent(userId)}`, {
+  method: 'PUT',
+  body: JSON.stringify(payload)
+});
+
+export const deleteAdminUser = (userId: string) => request<void>(`/api/admin/users/${encodeURIComponent(userId)}`, {
+  method: 'DELETE'
+});
+
 export const fetchAdminRuns = (params: {
   keyword?: string;
   userId?: string;

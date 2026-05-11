@@ -1,11 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
+  createAdminUser,
+  deleteAdminUser,
   fetchAdminDashboard,
   fetchAdminRun,
   fetchAdminRuns,
   fetchAdminRunTraces,
-  fetchAdminUsers
+  fetchAdminUsers,
+  updateAdminUser
 } from '../api';
 import type {
   AdminDashboardResponse,
@@ -18,6 +21,24 @@ import type {
 import './admin.css';
 
 type AdminView = 'dashboard' | 'users' | 'runs';
+
+interface UserFormState {
+  username: string;
+  password: string;
+  email: string;
+  phone: string;
+  role: 'USER' | 'ADMIN';
+  status: 'ACTIVE' | 'DISABLED';
+}
+
+const EMPTY_USER_FORM: UserFormState = {
+  username: '',
+  password: '',
+  email: '',
+  phone: '',
+  role: 'USER',
+  status: 'ACTIVE'
+};
 
 function formatDate(value?: string | null) {
   if (!value) return '-';
@@ -55,6 +76,11 @@ export function AdminConsole({
   const [userRole, setUserRole] = useState('');
   const [runKeyword, setRunKeyword] = useState('');
   const [runStatus, setRunStatus] = useState('');
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [userModalMode, setUserModalMode] = useState<'create' | 'edit'>('create');
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [userForm, setUserForm] = useState<UserFormState>(EMPTY_USER_FORM);
+  const [submittingUser, setSubmittingUser] = useState(false);
 
   async function loadDashboard() {
     setLoading(true);
@@ -138,6 +164,70 @@ export function AdminConsole({
   function submitRunSearch(event: FormEvent) {
     event.preventDefault();
     void loadRuns();
+  }
+
+  function openCreateUserModal() {
+    setUserModalMode('create');
+    setEditingUserId(null);
+    setUserForm(EMPTY_USER_FORM);
+    setShowUserModal(true);
+  }
+
+  function openEditUserModal(item: User) {
+    setUserModalMode('edit');
+    setEditingUserId(item.userId);
+    setUserForm({
+      username: item.username,
+      password: '',
+      email: item.email || '',
+      phone: item.phone || '',
+      role: item.role,
+      status: (item.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE')
+    });
+    setShowUserModal(true);
+  }
+
+  function closeUserModal() {
+    if (submittingUser) return;
+    setShowUserModal(false);
+    setEditingUserId(null);
+    setUserForm(EMPTY_USER_FORM);
+  }
+
+  async function submitUserModal(event: FormEvent) {
+    event.preventDefault();
+    setSubmittingUser(true);
+    setError(null);
+    try {
+      if (userModalMode === 'create') {
+        await createAdminUser(userForm);
+      } else if (editingUserId) {
+        await updateAdminUser(editingUserId, {
+          ...userForm,
+          password: userForm.password.trim() || undefined
+        });
+      }
+      closeUserModal();
+      await loadUsers();
+      await loadDashboard();
+    } catch (err) {
+      setError(toMessage(err));
+    } finally {
+      setSubmittingUser(false);
+    }
+  }
+
+  async function handleDeleteUser(item: User) {
+    const confirmed = window.confirm(`确认删除用户 ${item.username} 吗？此操作不可撤销。`);
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await deleteAdminUser(item.userId);
+      await loadUsers();
+      await loadDashboard();
+    } catch (err) {
+      setError(toMessage(err));
+    }
   }
 
   return (
@@ -235,6 +325,7 @@ export function AdminConsole({
                 <option value="ADMIN">ADMIN</option>
               </select>
               <button className="admin-primary-button" type="submit">查询</button>
+              <button className="admin-ghost-button" onClick={openCreateUserModal} type="button">新增用户</button>
             </form>
 
             <section className="admin-panel-card">
@@ -251,6 +342,7 @@ export function AdminConsole({
                       <th>状态</th>
                       <th>邮箱</th>
                       <th>最近登录</th>
+                      <th>操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -261,6 +353,12 @@ export function AdminConsole({
                         <td>{item.status}</td>
                         <td>{item.email || '-'}</td>
                         <td>{formatDate((item as User & { lastLoginAt?: string | null }).lastLoginAt)}</td>
+                        <td>
+                          <div className="admin-table-actions">
+                            <button className="admin-inline-button" onClick={() => openEditUserModal(item)} type="button">编辑</button>
+                            <button className="admin-inline-button danger" onClick={() => void handleDeleteUser(item)} type="button">删除</button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -357,6 +455,61 @@ export function AdminConsole({
           </section>
         )}
       </main>
+
+      {showUserModal && (
+        <div className="admin-modal-backdrop" onClick={closeUserModal}>
+          <div className="admin-modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="admin-panel-header">
+              <h2>{userModalMode === 'create' ? '新增用户' : '编辑用户'}</h2>
+              <button className="admin-ghost-button" onClick={closeUserModal} type="button">关闭</button>
+            </div>
+            <form className="admin-user-form" onSubmit={submitUserModal}>
+              <label>
+                <span>用户名</span>
+                <input value={userForm.username} onChange={(event) => setUserForm((state) => ({ ...state, username: event.target.value }))} required />
+              </label>
+              <label>
+                <span>{userModalMode === 'create' ? '密码' : '新密码'}</span>
+                <input
+                  type="password"
+                  value={userForm.password}
+                  onChange={(event) => setUserForm((state) => ({ ...state, password: event.target.value }))}
+                  placeholder={userModalMode === 'edit' ? '留空则不修改' : ''}
+                  required={userModalMode === 'create'}
+                />
+              </label>
+              <label>
+                <span>邮箱</span>
+                <input value={userForm.email} onChange={(event) => setUserForm((state) => ({ ...state, email: event.target.value }))} />
+              </label>
+              <label>
+                <span>手机号</span>
+                <input value={userForm.phone} onChange={(event) => setUserForm((state) => ({ ...state, phone: event.target.value }))} />
+              </label>
+              <label>
+                <span>角色</span>
+                <select value={userForm.role} onChange={(event) => setUserForm((state) => ({ ...state, role: event.target.value as 'USER' | 'ADMIN' }))}>
+                  <option value="USER">USER</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+              </label>
+              <label>
+                <span>状态</span>
+                <select value={userForm.status} onChange={(event) => setUserForm((state) => ({ ...state, status: event.target.value as 'ACTIVE' | 'DISABLED' }))}>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="DISABLED">DISABLED</option>
+                </select>
+              </label>
+              <div className="admin-modal-actions">
+                <button className="admin-ghost-button" onClick={closeUserModal} type="button">取消</button>
+                <button className="admin-primary-button" disabled={submittingUser} type="submit">
+                  {submittingUser ? '提交中...' : userModalMode === 'create' ? '创建' : '保存'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
