@@ -82,6 +82,10 @@ export function AdminConsole({
   const [userForm, setUserForm] = useState<UserFormState>(EMPTY_USER_FORM);
   const [submittingUser, setSubmittingUser] = useState(false);
 
+  const hasVisibleContent = (view === 'dashboard' && dashboard)
+    || (view === 'users' && usersPage)
+    || (view === 'runs' && runsPage);
+
   async function loadDashboard() {
     setLoading(true);
     setError(null);
@@ -251,9 +255,9 @@ export function AdminConsole({
 
       <main className="admin-main-panel">
         {error && <div className="admin-error-banner">{error}</div>}
-        {loading && <div className="admin-loading">加载中...</div>}
+        {loading && !hasVisibleContent && <div className="admin-loading">加载中...</div>}
 
-        {!loading && view === 'dashboard' && dashboard && (
+        {view === 'dashboard' && dashboard && (
           <section className="admin-section-stack">
             <div className="admin-card-grid">
               {summaryCards.map((card) => (
@@ -315,7 +319,7 @@ export function AdminConsole({
           </section>
         )}
 
-        {!loading && view === 'users' && usersPage && (
+        {view === 'users' && usersPage && (
           <section className="admin-section-stack">
             <form className="admin-filter-bar" onSubmit={submitUserSearch}>
               <input value={userKeyword} onChange={(event) => setUserKeyword(event.target.value)} placeholder="搜索用户名、邮箱或手机号" />
@@ -330,7 +334,10 @@ export function AdminConsole({
 
             <section className="admin-panel-card">
               <div className="admin-panel-header">
-                <h2>用户列表</h2>
+                <div className="admin-panel-header-main">
+                  <h2>用户列表</h2>
+                  {loading && <span className="admin-loading-inline admin-loading-inline-compact">正在刷新数据...</span>}
+                </div>
                 <span>共 {usersPage.total} 人</span>
               </div>
               <div className="admin-table-wrap">
@@ -368,7 +375,7 @@ export function AdminConsole({
           </section>
         )}
 
-        {!loading && view === 'runs' && runsPage && (
+        {view === 'runs' && runsPage && (
           <section className="admin-section-stack admin-runs-layout">
             <div>
               <form className="admin-filter-bar" onSubmit={submitRunSearch}>
