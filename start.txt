@@ -1,0 +1,9 @@
+启动方式：
+
+cd D:/超级进步/项目/my-super-project
+powershell -ExecutionPolicy Bypass -File scripts/start-dev.ps1
+启动后访问：
+
+前端：http://localhost:5173
+Java API：http://localhost:8620/api/health
+Python Agent：http://localhost:8000/health
