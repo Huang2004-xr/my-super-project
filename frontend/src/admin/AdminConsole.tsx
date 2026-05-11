@@ -151,14 +151,13 @@ export function AdminConsole({
   }, [view]);
 
   const summaryCards = useMemo(() => {
-    if (!dashboard) return [];
     return [
-      { label: '用户数', value: dashboard.summary.userCount },
-      { label: '管理员', value: dashboard.summary.adminCount },
-      { label: '知识库', value: dashboard.summary.knowledgeBaseCount },
-      { label: '文档数', value: dashboard.summary.documentCount },
-      { label: '24h 运行', value: dashboard.summary.runCount24h },
-      { label: '24h 异常', value: dashboard.summary.failedRunCount24h }
+      { label: '用户数', value: dashboard?.summary.userCount ?? null },
+      { label: '管理员', value: dashboard?.summary.adminCount ?? null },
+      { label: '知识库', value: dashboard?.summary.knowledgeBaseCount ?? null },
+      { label: '文档数', value: dashboard?.summary.documentCount ?? null },
+      { label: '24h 运行', value: dashboard?.summary.runCount24h ?? null },
+      { label: '24h 异常', value: dashboard?.summary.failedRunCount24h ?? null }
     ];
   }, [dashboard]);
 
@@ -271,30 +270,33 @@ export function AdminConsole({
         {error && <div className="admin-error-banner">{error}</div>}
         {loading && !hasVisibleContent && <div className="admin-loading">加载中...</div>}
 
-        {view === 'dashboard' && dashboard && (
+        {view === 'dashboard' && (
           <section className="admin-section-stack">
             <div className="admin-card-grid">
               {summaryCards.map((card) => (
                 <article className="admin-stat-card" key={card.label}>
                   <span>{card.label}</span>
-                  <strong>{card.value}</strong>
+                  <strong>{card.value ?? '--'}</strong>
                 </article>
               ))}
             </div>
 
             <section className="admin-panel-card">
               <div className="admin-panel-header">
-                <h2>系统状态</h2>
+                <div className="admin-panel-header-main">
+                  <h2>系统状态</h2>
+                  {loading && <span className="admin-loading-inline admin-loading-inline-compact">正在刷新数据...</span>}
+                </div>
                 <button className="admin-ghost-button" onClick={() => void loadDashboard()} type="button">刷新</button>
               </div>
               <div className="admin-health-grid">
                 <div>
                   <span className="admin-label">Java</span>
-                  <strong>{dashboard.health.status}</strong>
+                  <strong>{dashboard?.health.status ?? '--'}</strong>
                 </div>
                 <div>
                   <span className="admin-label">Python Agent</span>
-                  <strong>{dashboard.health.agent?.status ?? '-'}</strong>
+                  <strong>{dashboard?.health.agent?.status ?? '--'}</strong>
                 </div>
               </div>
             </section>
@@ -305,8 +307,9 @@ export function AdminConsole({
                   <h2>最近异常运行</h2>
                 </div>
                 <div className="admin-list-block">
-                  {dashboard.recentFailedRuns.length === 0 && <p className="admin-empty-text">暂无异常运行</p>}
-                  {dashboard.recentFailedRuns.map((item) => (
+                  {!dashboard && <p className="admin-empty-text">正在加载总览数据...</p>}
+                  {dashboard && dashboard.recentFailedRuns.length === 0 && <p className="admin-empty-text">暂无异常运行</p>}
+                  {dashboard?.recentFailedRuns.map((item) => (
                     <button className="admin-list-item" key={item.runId} onClick={() => { setView('runs'); void openRun(item.runId); }} type="button">
                       <strong>{item.username} · {item.status}</strong>
                       <span>{item.message}</span>
@@ -320,8 +323,9 @@ export function AdminConsole({
                   <h2>最近新增用户</h2>
                 </div>
                 <div className="admin-list-block">
-                  {dashboard.recentUsers.length === 0 && <p className="admin-empty-text">暂无用户</p>}
-                  {dashboard.recentUsers.map((item) => (
+                  {!dashboard && <p className="admin-empty-text">正在加载总览数据...</p>}
+                  {dashboard && dashboard.recentUsers.length === 0 && <p className="admin-empty-text">暂无用户</p>}
+                  {dashboard?.recentUsers.map((item) => (
                     <div className="admin-list-item static" key={item.userId}>
                       <strong>{item.username} · {item.role}</strong>
                       <span>{formatDate(item.createdAt)}</span>
@@ -478,7 +482,7 @@ export function AdminConsole({
       </main>
 
       {showUserModal && (
-        <div className="admin-modal-backdrop" onClick={closeUserModal}>
+        <div className="admin-modal-backdrop">
           <div className="admin-modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="admin-panel-header">
               <h2>{userModalMode === 'create' ? '新增用户' : '编辑用户'}</h2>
@@ -533,7 +537,7 @@ export function AdminConsole({
       )}
 
       {pendingDeleteUser && (
-        <div className="admin-modal-backdrop" onClick={closeDeleteModal}>
+        <div className="admin-modal-backdrop">
           <div className="admin-modal-card admin-confirm-card" onClick={(event) => event.stopPropagation()}>
             <div className="admin-panel-header">
               <h2>删除用户</h2>
