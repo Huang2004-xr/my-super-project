@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,13 +65,41 @@ public class AgentRunRepository {
         return runs;
     }
 
+    public List<AgentRun> findAllGlobal() {
+        List<AgentRun> runs = new ArrayList<>();
+        for (AgentRunEntity entity : runRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"))) {
+            runs.add(toRun(entity));
+        }
+        return runs;
+    }
+
     public Optional<AgentRun> findById(String userId, String runId) {
         return runRepository.findByRunIdAndUserId(runId, userId).map(this::toRun);
+    }
+
+    public Optional<AgentRun> findByRunId(String runId) {
+        return runRepository.findById(runId).map(this::toRun);
+    }
+
+    public Optional<AgentRunEntity> findEntityByRunId(String runId) {
+        return runRepository.findById(runId);
     }
 
     @Transactional
     public void updateTraces(String userId, String runId, List<TraceEvent> traces) {
         if (!runRepository.findByRunIdAndUserId(runId, userId).isPresent()) {
+            return;
+        }
+        AgentRunDetailEntity detail = detailRepository.findById(runId).orElse(null);
+        if (detail != null) {
+            detail.setTracesJson(writeJson(traces));
+            detailRepository.save(detail);
+        }
+    }
+
+    @Transactional
+    public void updateTracesGlobal(String runId, List<TraceEvent> traces) {
+        if (!runRepository.findById(runId).isPresent()) {
             return;
         }
         AgentRunDetailEntity detail = detailRepository.findById(runId).orElse(null);

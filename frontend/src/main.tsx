@@ -23,6 +23,7 @@ import {
   uploadImage,
   uploadVideo
 } from './api';
+import { AdminConsole } from './admin/AdminConsole';
 import type {
   AgentRun,
   Capability,
@@ -83,6 +84,7 @@ const CAPABILITY_LABELS: Record<Capability, string> = {
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [isAdminConsole, setIsAdminConsole] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem(THEME_KEY);
@@ -131,6 +133,7 @@ function App() {
     fetchMe()
       .then((me) => {
         setUser(me);
+        setIsAdminConsole(me.role === 'ADMIN');
         return bootstrap();
       })
       .catch(() => setAuthToken(null))
@@ -203,6 +206,7 @@ function App() {
       const response = await login(username, password);
       setAuthToken(response.token);
       setUser(response.user);
+      setIsAdminConsole(response.user.role === 'ADMIN');
       await bootstrap();
     } catch (err) {
       showError(err);
@@ -224,6 +228,7 @@ function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBaseId(null);
     setUseKnowledgeBase(false);
+    setIsAdminConsole(false);
   }
 
   async function handleNewConversation() {
@@ -510,6 +515,10 @@ function App() {
     );
   }
 
+  if (user.role === 'ADMIN' && isAdminConsole) {
+    return <AdminConsole user={user} onLogout={handleLogout} onEnterWorkspace={() => setIsAdminConsole(false)} />;
+  }
+
   const selectedKnowledgeBase = knowledgeBases.find((item) => item.knowledgeBaseId === selectedKnowledgeBaseId) ?? null;
 
   return (
@@ -524,6 +533,7 @@ function App() {
             <span className="topbar-search-shortcut">Ctrl K</span>
           </button>
           <button className="topbar-action" onClick={handleHelpNavigate} type="button">帮助</button>
+          {user.role === 'ADMIN' && <button className="topbar-action" onClick={() => setIsAdminConsole(true)} type="button">管理台</button>}
         </div>
         <ThemeToggle theme={theme} onToggle={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))} />
         <button className="top-link" onClick={handleLogout} type="button">{user.username} 退出</button>

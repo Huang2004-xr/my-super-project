@@ -166,11 +166,62 @@ export interface User {
   phone?: string | null;
   role: 'USER' | 'ADMIN';
   status: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastLoginAt?: string | null;
 }
 
 export interface AuthResponse {
   token: string;
   user: User;
+}
+
+export interface AdminPageResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface AdminSummary {
+  userCount: number;
+  adminCount: number;
+  knowledgeBaseCount: number;
+  documentCount: number;
+  runCount24h: number;
+  failedRunCount24h: number;
+  imageCount: number;
+  videoCount: number;
+}
+
+export interface AdminRunListItem {
+  runId: string;
+  userId: string;
+  username: string;
+  capability: string;
+  status: string;
+  useKnowledgeBase: boolean;
+  knowledgeBaseId?: string | null;
+  knowledgeBaseName?: string | null;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminDashboardResponse {
+  summary: AdminSummary;
+  health: {
+    status: string;
+    service: string;
+    agent?: {
+      status: string;
+      message?: string;
+      service?: string;
+    };
+  };
+  recentFailedRuns: AdminRunListItem[];
+  recentUsers: User[];
+  recentDocuments: KnowledgeDocument[];
 }
 
 export interface ConversationMessage {

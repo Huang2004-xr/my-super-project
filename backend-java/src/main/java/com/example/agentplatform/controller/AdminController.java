@@ -1,36 +1,73 @@
 package com.example.agentplatform.controller;
 
+import com.example.agentplatform.dto.admin.AdminDashboardResponse;
+import com.example.agentplatform.dto.admin.AdminPageResponse;
+import com.example.agentplatform.dto.admin.AdminRunListItemDto;
+import com.example.agentplatform.model.AgentRun;
+import com.example.agentplatform.model.TraceEvent;
 import com.example.agentplatform.model.UserDto;
-import com.example.agentplatform.model.UserEntity;
+import com.example.agentplatform.service.AdminQueryService;
 import com.example.agentplatform.service.AuthService;
-import com.example.agentplatform.service.UserRepository;
 import java.util.List;
-import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
     private final AuthService authService;
-    private final UserRepository userRepository;
+    private final AdminQueryService adminQueryService;
 
-    public AdminController(AuthService authService, UserRepository userRepository) {
+    public AdminController(AuthService authService, AdminQueryService adminQueryService) {
         this.authService = authService;
-        this.userRepository = userRepository;
+        this.adminQueryService = adminQueryService;
+    }
+
+    @GetMapping("/dashboard")
+    public AdminDashboardResponse dashboard(HttpServletRequest request) {
+        authService.requireAdmin(request);
+        return adminQueryService.getDashboard();
     }
 
     @GetMapping("/users")
-    public List<UserDto> users(HttpServletRequest request) {
+    public AdminPageResponse<UserDto> users(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            HttpServletRequest request) {
         authService.requireAdmin(request);
-        return userRepository.findAll().stream()
-                .map(this::toDto)
-                .collect(Collectors.toList());
+        return adminQueryService.listUsers(keyword, role, status, page, size);
     }
 
-    private UserDto toDto(UserEntity user) {
-        return authService.toDto(user);
+    @GetMapping("/agent-runs")
+    public AdminPageResponse<AdminRunListItemDto> runs(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) String capability,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean useKnowledgeBase,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            HttpServletRequest request) {
+        authService.requireAdmin(request);
+        return adminQueryService.listRuns(keyword, userId, capability, status, useKnowledgeBase, page, size);
+    }
+
+    @GetMapping("/agent-runs/{runId}")
+    public AgentRun run(@PathVariable String runId, HttpServletRequest request) {
+        authService.requireAdmin(request);
+        return adminQueryService.getRun(runId);
+    }
+
+    @GetMapping("/agent-runs/{runId}/traces")
+    public List<TraceEvent> traces(@PathVariable String runId, HttpServletRequest request) {
+        authService.requireAdmin(request);
+        return adminQueryService.getRunTraces(runId);
     }
 }

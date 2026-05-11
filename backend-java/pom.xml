@@ -12,7 +12,7 @@
     <artifactId>agent-platform</artifactId>
     <version>0.1.0</version>
     <properties>
-        <java.version>21</java.version>
+        <java.version>17</java.version>
         <!-- Override Spring Boot BOM versions to fix CVEs -->
         <!-- CVE-2022-45868: fixed in 2.2.224+ -->
         <h2.version>2.2.224</h2.version>

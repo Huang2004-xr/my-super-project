@@ -1,4 +1,7 @@
 import type {
+  AdminDashboardResponse,
+  AdminPageResponse,
+  AdminRunListItem,
   AgentRun,
   AuthResponse,
   CapabilityDefinition,
@@ -164,6 +167,16 @@ export function setAuthToken(token: string | null) {
   }
 }
 
+function buildQuery(params: Record<string, string | number | boolean | null | undefined>) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    search.set(key, String(value));
+  });
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
 export const login = (username: string, password: string) =>
   request<AuthResponse>('/api/auth/login', {
     method: 'POST',
@@ -176,6 +189,30 @@ export const logout = () =>
   });
 
 export const fetchMe = () => request<User>('/api/auth/me');
+
+export const fetchAdminDashboard = () => request<AdminDashboardResponse>('/api/admin/dashboard');
+
+export const fetchAdminUsers = (params: {
+  keyword?: string;
+  role?: string;
+  status?: string;
+  page?: number;
+  size?: number;
+} = {}) => request<AdminPageResponse<User>>(`/api/admin/users${buildQuery(params)}`);
+
+export const fetchAdminRuns = (params: {
+  keyword?: string;
+  userId?: string;
+  capability?: string;
+  status?: string;
+  useKnowledgeBase?: boolean;
+  page?: number;
+  size?: number;
+} = {}) => request<AdminPageResponse<AdminRunListItem>>(`/api/admin/agent-runs${buildQuery(params)}`);
+
+export const fetchAdminRun = (runId: string) => request<AgentRun>(`/api/admin/agent-runs/${encodeURIComponent(runId)}`);
+
+export const fetchAdminRunTraces = (runId: string) => request<TraceEvent[]>(`/api/admin/agent-runs/${encodeURIComponent(runId)}/traces`);
 
 export const fetchCapabilities = () => request<CapabilityDefinition[]>('/api/capabilities');
 
