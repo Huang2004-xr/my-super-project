@@ -81,6 +81,8 @@ export function AdminConsole({
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [userForm, setUserForm] = useState<UserFormState>(EMPTY_USER_FORM);
   const [submittingUser, setSubmittingUser] = useState(false);
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
 
   const hasVisibleContent = (view === 'dashboard' && dashboard)
     || (view === 'users' && usersPage)
@@ -198,6 +200,11 @@ export function AdminConsole({
     setUserForm(EMPTY_USER_FORM);
   }
 
+  function closeDeleteModal() {
+    if (deletingUser) return;
+    setPendingDeleteUser(null);
+  }
+
   async function submitUserModal(event: FormEvent) {
     event.preventDefault();
     setSubmittingUser(true);
@@ -221,16 +228,23 @@ export function AdminConsole({
     }
   }
 
-  async function handleDeleteUser(item: User) {
-    const confirmed = window.confirm(`确认删除用户 ${item.username} 吗？此操作不可撤销。`);
-    if (!confirmed) return;
+  function handleDeleteUser(item: User) {
+    setPendingDeleteUser(item);
+  }
+
+  async function confirmDeleteUser() {
+    if (!pendingDeleteUser) return;
     setError(null);
+    setDeletingUser(true);
     try {
-      await deleteAdminUser(item.userId);
+      await deleteAdminUser(pendingDeleteUser.userId);
+      setPendingDeleteUser(null);
       await loadUsers();
       await loadDashboard();
     } catch (err) {
       setError(toMessage(err));
+    } finally {
+      setDeletingUser(false);
     }
   }
 
@@ -363,7 +377,7 @@ export function AdminConsole({
                         <td>
                           <div className="admin-table-actions">
                             <button className="admin-inline-button" onClick={() => openEditUserModal(item)} type="button">编辑</button>
-                            <button className="admin-inline-button danger" onClick={() => void handleDeleteUser(item)} type="button">删除</button>
+                            <button className="admin-inline-button danger" onClick={() => handleDeleteUser(item)} type="button">删除</button>
                           </div>
                         </td>
                       </tr>
@@ -514,6 +528,27 @@ export function AdminConsole({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteUser && (
+        <div className="admin-modal-backdrop" onClick={closeDeleteModal}>
+          <div className="admin-modal-card admin-confirm-card" onClick={(event) => event.stopPropagation()}>
+            <div className="admin-panel-header">
+              <h2>删除用户</h2>
+              <button className="admin-ghost-button" onClick={closeDeleteModal} type="button">关闭</button>
+            </div>
+            <div className="admin-confirm-content">
+              <p>确认删除用户 <strong>{pendingDeleteUser.username}</strong> 吗？</p>
+              <p className="admin-empty-text">该操作不可撤销，删除后将无法恢复该账号。</p>
+            </div>
+            <div className="admin-modal-actions">
+              <button className="admin-ghost-button" onClick={closeDeleteModal} type="button">取消</button>
+              <button className="admin-danger-button" disabled={deletingUser} onClick={() => void confirmDeleteUser()} type="button">
+                {deletingUser ? '删除中...' : '确认删除'}
+              </button>
+            </div>
           </div>
         </div>
       )}

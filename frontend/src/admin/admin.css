@@ -83,6 +83,20 @@
   background: var(--accent);
 }
 
+.admin-danger-button {
+  min-height: 40px;
+  padding: 10px 14px;
+  color: #fff4f4;
+  font-weight: 800;
+  border: 1px solid #d74f4f;
+  border-radius: 12px;
+  background: rgba(176, 42, 42, 0.86);
+}
+
+.admin-danger-button:hover:not(:disabled) {
+  background: rgba(196, 52, 52, 0.96);
+}
+
 .admin-main-panel {
   min-width: 0;
   min-height: 0;
@@ -328,6 +342,21 @@
   border-radius: 20px;
   background: var(--panel-bg);
   box-shadow: 0 24px 50px color-mix(in srgb, var(--shadow) 80%, transparent);
+}
+
+.admin-confirm-card {
+  width: min(460px, 100%);
+}
+
+.admin-confirm-content {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.admin-confirm-content p {
+  margin: 0;
+  line-height: 1.6;
 }
 
 .admin-user-form {
