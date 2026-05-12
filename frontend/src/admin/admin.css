@@ -252,6 +252,19 @@
   padding: 8px 12px;
 }
 
+.admin-filter-bar select,
+.admin-user-form select {
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-bg) 96%, transparent);
+  border: 1px solid var(--border);
+}
+
+.admin-filter-bar select option,
+.admin-user-form select option {
+  color: var(--text);
+  background: var(--panel-bg);
+}
+
 .admin-filter-bar input {
   flex: 1;
 }
