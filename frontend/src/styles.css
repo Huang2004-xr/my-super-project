@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap');
 
 * {
   box-sizing: border-box;
@@ -23,8 +23,8 @@
   --radius-md: 14px;
   --radius-lg: 18px;
   --radius-xl: 24px;
-  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-  --font-display: "Inter", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Manrope", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 :root[data-theme="light"] {
@@ -59,10 +59,14 @@ body {
   background: var(--app-bg);
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
+select,
 textarea,
 input {
   font: inherit;
@@ -79,11 +83,13 @@ button:disabled {
 }
 
 button,
+select,
 input,
 textarea {
   color: var(--text);
 }
 
+select,
 input,
 textarea {
   background: var(--panel-bg);
@@ -94,9 +100,18 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .theme-toggle {

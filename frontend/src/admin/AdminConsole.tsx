@@ -271,7 +271,7 @@ export function AdminConsole({
         {loading && !hasVisibleContent && <div className="admin-loading">加载中...</div>}
 
         {view === 'dashboard' && (
-          <section className="admin-section-stack">
+          <section className="admin-section-stack admin-dashboard-layout">
             <div className="admin-card-grid">
               {summaryCards.map((card) => (
                 <article className="admin-stat-card" key={card.label}>
@@ -338,10 +338,10 @@ export function AdminConsole({
         )}
 
         {view === 'users' && usersPage && (
-          <section className="admin-section-stack">
+          <section className="admin-section-stack admin-users-layout">
             <form className="admin-filter-bar" onSubmit={submitUserSearch}>
-              <input value={userKeyword} onChange={(event) => setUserKeyword(event.target.value)} placeholder="搜索用户名、邮箱或手机号" />
-              <select value={userRole} onChange={(event) => setUserRole(event.target.value)}>
+              <input aria-label="按用户名、邮箱或手机号搜索用户" value={userKeyword} onChange={(event) => setUserKeyword(event.target.value)} placeholder="搜索用户名、邮箱或手机号" />
+              <select aria-label="按角色筛选用户" value={userRole} onChange={(event) => setUserRole(event.target.value)}>
                 <option value="">全部角色</option>
                 <option value="USER">USER</option>
                 <option value="ADMIN">ADMIN</option>
@@ -356,7 +356,7 @@ export function AdminConsole({
                   <h2>用户列表</h2>
                   {loading && <span className="admin-loading-inline admin-loading-inline-compact">正在刷新数据...</span>}
                 </div>
-                <span>共 {usersPage.total} 人</span>
+                <span className="admin-count-badge">共 {usersPage.total} 人</span>
               </div>
               <div className="admin-table-wrap">
                 <table className="admin-table">
@@ -373,9 +373,9 @@ export function AdminConsole({
                   <tbody>
                     {usersPage.items.map((item) => (
                       <tr key={item.userId}>
-                        <td>{item.username}</td>
-                        <td>{item.role}</td>
-                        <td>{item.status}</td>
+                        <td className="admin-table-primary">{item.username}</td>
+                        <td><span className={`admin-pill ${item.role === 'ADMIN' ? 'accent' : ''}`}>{item.role}</span></td>
+                        <td><span className={`admin-pill ${item.status === 'ACTIVE' ? 'success' : 'muted'}`}>{item.status}</span></td>
                         <td>{item.email || '-'}</td>
                         <td>{formatDate((item as User & { lastLoginAt?: string | null }).lastLoginAt)}</td>
                         <td>
@@ -395,10 +395,10 @@ export function AdminConsole({
 
         {view === 'runs' && runsPage && (
           <section className="admin-section-stack admin-runs-layout">
-            <div>
+            <div className="admin-runs-main">
               <form className="admin-filter-bar" onSubmit={submitRunSearch}>
-                <input value={runKeyword} onChange={(event) => setRunKeyword(event.target.value)} placeholder="搜索运行 ID、用户或消息" />
-                <select value={runStatus} onChange={(event) => setRunStatus(event.target.value)}>
+                <input aria-label="按运行 ID、用户或消息搜索记录" value={runKeyword} onChange={(event) => setRunKeyword(event.target.value)} placeholder="搜索运行 ID、用户或消息" />
+                <select aria-label="按运行状态筛选记录" value={runStatus} onChange={(event) => setRunStatus(event.target.value)}>
                   <option value="">全部状态</option>
                   <option value="completed">completed</option>
                   <option value="failed">failed</option>
@@ -409,7 +409,7 @@ export function AdminConsole({
               <section className="admin-panel-card">
                 <div className="admin-panel-header">
                   <h2>运行记录</h2>
-                  <span>共 {runsPage.total} 条</span>
+                  <span className="admin-count-badge">共 {runsPage.total} 条</span>
                 </div>
                 <div className="admin-table-wrap">
                   <table className="admin-table">
@@ -425,10 +425,10 @@ export function AdminConsole({
                     <tbody>
                       {runsPage.items.map((item) => (
                         <tr className="clickable" key={item.runId} onClick={() => void openRun(item.runId)}>
-                          <td>{item.runId.slice(0, 8)}</td>
+                          <td className="admin-table-primary">{item.runId.slice(0, 8)}</td>
                           <td>{item.username}</td>
                           <td>{item.capability}</td>
-                          <td>{item.status}</td>
+                          <td><span className={`admin-pill ${item.status === 'completed' ? 'success' : 'danger'}`}>{item.status}</span></td>
                           <td>{formatDate(item.createdAt)}</td>
                         </tr>
                       ))}
@@ -448,7 +448,7 @@ export function AdminConsole({
                 <div className="admin-detail-content">
                   <div className="admin-detail-block">
                     <span className="admin-label">状态</span>
-                    <strong>{selectedRun.status}</strong>
+                    <strong><span className={`admin-pill ${selectedRun.status === 'completed' ? 'success' : 'danger'}`}>{selectedRun.status}</span></strong>
                   </div>
                   <div className="admin-detail-block">
                     <span className="admin-label">消息</span>
