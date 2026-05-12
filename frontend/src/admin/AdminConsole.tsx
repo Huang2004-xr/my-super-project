@@ -69,6 +69,7 @@ export function AdminConsole({
   const [runsPage, setRunsPage] = useState<AdminPageResponse<AdminRunListItem> | null>(null);
   const [selectedRun, setSelectedRun] = useState<AgentRun | null>(null);
   const [selectedRunTraces, setSelectedRunTraces] = useState<TraceEvent[]>([]);
+  const [selectedRunTraceNotice, setSelectedRunTraceNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,10 +128,22 @@ export function AdminConsole({
   async function openRun(runId: string) {
     setDetailLoading(true);
     setError(null);
+    setSelectedRunTraceNotice(null);
+    setSelectedRunTraces([]);
     try {
-      const [run, traces] = await Promise.all([fetchAdminRun(runId), fetchAdminRunTraces(runId)]);
+      const run = await fetchAdminRun(runId);
       setSelectedRun(run);
-      setSelectedRunTraces(traces);
+      try {
+        const traces = await fetchAdminRunTraces(runId);
+        setSelectedRunTraces(traces);
+      } catch (err) {
+        if (err instanceof ApiError && err.detail.status === 404) {
+          setSelectedRunTraceNotice('历史 trace 已归档/不可刷新');
+          setSelectedRunTraces([]);
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
       setError(toMessage(err));
     } finally {
@@ -465,7 +478,8 @@ export function AdminConsole({
                   <div className="admin-detail-block">
                     <span className="admin-label">Trace</span>
                     <div className="admin-trace-list">
-                      {selectedRunTraces.length === 0 && <p className="admin-empty-text">暂无 trace</p>}
+                      {selectedRunTraceNotice && <p className="admin-empty-text">{selectedRunTraceNotice}</p>}
+                      {!selectedRunTraceNotice && selectedRunTraces.length === 0 && <p className="admin-empty-text">暂无 trace</p>}
                       {selectedRunTraces.map((trace, index) => (
                         <div className="admin-trace-item" key={`${trace.timestamp}-${index}`}>
                           <strong>{trace.eventType}</strong>

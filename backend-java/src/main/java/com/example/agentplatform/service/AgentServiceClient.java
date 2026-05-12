@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
@@ -24,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
@@ -118,6 +120,8 @@ public class AgentServiceClient {
                     internalEntity(),
                     new ParameterizedTypeReference<List<TraceEvent>>() {});
             return response.getBody() == null ? Collections.emptyList() : response.getBody();
+        } catch (HttpClientErrorException.NotFound ex) {
+            throw new NoSuchElementException("Python Agent Trace not found: " + runId);
         } catch (RestClientException ex) {
             throw pythonServiceException("查询 Python Agent Trace", ex);
         }

@@ -211,11 +211,22 @@ public class AdminQueryService {
     }
 
     public List<TraceEvent> getRunTraces(String runId) {
-        agentRunRepository.findByRunId(runId)
+        AgentRun run = agentRunRepository.findByRunId(runId)
                 .orElseThrow(() -> new NoSuchElementException("Agent Run not found: " + runId));
-        List<TraceEvent> traces = agentServiceClient.getTraces(runId);
-        agentRunRepository.updateTracesGlobal(runId, traces);
-        return traces;
+        List<TraceEvent> persistedTraces = run.traces == null ? Collections.emptyList() : run.traces;
+        if (!shouldRefreshTraces(run, persistedTraces)) {
+            return persistedTraces;
+        }
+        try {
+            List<TraceEvent> traces = agentServiceClient.getTraces(runId);
+            agentRunRepository.updateTracesGlobal(runId, traces);
+            return traces;
+        } catch (NoSuchElementException ex) {
+            if (!persistedTraces.isEmpty()) {
+                return persistedTraces;
+            }
+            throw new NoSuchElementException("Agent Run trace not found: " + runId);
+        }
     }
 
     private String runUserId(String runId) {
@@ -226,6 +237,13 @@ public class AdminQueryService {
 
     private boolean isFailedRun(AgentRun run) {
         return run.status != null && !"completed".equalsIgnoreCase(run.status);
+    }
+
+    private boolean shouldRefreshTraces(AgentRun run, List<TraceEvent> persistedTraces) {
+        if (persistedTraces.isEmpty()) {
+            return true;
+        }
+        return run.status != null && "running".equalsIgnoreCase(run.status);
     }
 
     private Map<String, Object> buildHealth() {
