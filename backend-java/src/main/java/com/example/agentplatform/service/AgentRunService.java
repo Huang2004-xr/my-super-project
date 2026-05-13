@@ -26,11 +26,14 @@ import org.springframework.web.multipart.MultipartFile;
 public class AgentRunService {
     private static final Set<String> CAPABILITY_HINTS = new HashSet<>(Arrays.asList(
             "TEXT_CHAT", "VIDEO_CREATION", "IMAGE_CREATION", "KNOWLEDGE_RETRIEVAL"));
+    private static final List<String> VIDEO_TERMS = Arrays.asList("视频", "短视频", "分镜", "脚本", "镜头", "剪辑", "生成视频");
+    private static final List<String> IMAGE_TERMS = Arrays.asList("图片", "海报", "封面", "插画", "图像", "生成一张", "设计一张", "画一张");
 
     private final AgentRunRepository repository;
     private final AgentServiceClient agentClient;
     private final ConversationService conversationService;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final AiProviderService aiProviderService;
     private final FileAssetRepository fileAssetRepository;
     private final FileStorageService fileStorageService;
     private final ImageAssetRepository imageAssetRepository;
@@ -40,6 +43,7 @@ public class AgentRunService {
 
     public AgentRunService(AgentRunRepository repository, AgentServiceClient agentClient,
             ConversationService conversationService, KnowledgeBaseService knowledgeBaseService,
+            AiProviderService aiProviderService,
             FileAssetRepository fileAssetRepository, FileStorageService fileStorageService,
             ImageAssetRepository imageAssetRepository, VideoAssetRepository videoAssetRepository,
             @Value("${upload.max-image-bytes}") long maxImageBytes,
@@ -48,6 +52,7 @@ public class AgentRunService {
         this.agentClient = agentClient;
         this.conversationService = conversationService;
         this.knowledgeBaseService = knowledgeBaseService;
+        this.aiProviderService = aiProviderService;
         this.fileAssetRepository = fileAssetRepository;
         this.fileStorageService = fileStorageService;
         this.imageAssetRepository = imageAssetRepository;
@@ -86,6 +91,8 @@ public class AgentRunService {
         }
         conversationService.ensureExists(userId, request.conversationId);
         request.input.putAll(conversationService.prepareMemoryInput(userId, request.conversationId));
+        String providerCapability = inferProviderCapability(request);
+        request.providerConfig = aiProviderService.resolveProvider(userId, providerCapability);
         AgentRun run = agentClient.startRun(request);
         AgentRun saved = repository.save(run, userId, request.conversationId);
         conversationService.attachRun(userId, request.conversationId, request.message, saved.capability,
@@ -229,5 +236,31 @@ public class AgentRunService {
         if (maxBytes > 0 && file.getSize() > maxBytes) {
             throw new IllegalArgumentException(label + " file exceeds max size: " + maxBytes + " bytes");
         }
+    }
+
+    private String inferProviderCapability(CreateAgentRunRequest request) {
+        if (request.capabilityHint != null && CAPABILITY_HINTS.contains(request.capabilityHint)) {
+            return request.capabilityHint;
+        }
+        if (request.useKnowledgeBase) {
+            return "KNOWLEDGE_RETRIEVAL";
+        }
+        String message = request.message == null ? "" : request.message;
+        if (containsAny(message, VIDEO_TERMS)) {
+            return "VIDEO_CREATION";
+        }
+        if (containsAny(message, IMAGE_TERMS) || request.imageAssetId != null) {
+            return "IMAGE_CREATION";
+        }
+        return "TEXT_CHAT";
+    }
+
+    private boolean containsAny(String value, List<String> terms) {
+        for (String term : terms) {
+            if (value.contains(term)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

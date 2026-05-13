@@ -1,6 +1,5 @@
 package com.example.agentplatform.controller;
 
-import com.example.agentplatform.model.AiProviderEntity;
 import com.example.agentplatform.model.ErrorResponse;
 import com.example.agentplatform.model.FileAssetEntity;
 import com.example.agentplatform.model.ImageAssetEntity;
@@ -9,9 +8,7 @@ import com.example.agentplatform.model.KnowledgeDocumentEntity;
 import com.example.agentplatform.model.KnowledgeSearchResponse;
 import com.example.agentplatform.model.UserEntity;
 import com.example.agentplatform.model.VideoAssetEntity;
-import com.example.agentplatform.service.AiProviderRepository;
 import com.example.agentplatform.service.AuthService;
-import com.example.agentplatform.service.CryptoService;
 import com.example.agentplatform.service.FileAssetRepository;
 import com.example.agentplatform.service.FileStorageService;
 import com.example.agentplatform.service.ImageAssetRepository;
@@ -20,7 +17,6 @@ import com.example.agentplatform.service.VideoAssetRepository;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -37,7 +33,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,27 +44,22 @@ import org.springframework.web.multipart.MultipartFile;
 public class ResourceController {
     private final AuthService authService;
     private final KnowledgeBaseService knowledgeBaseService;
-    private final AiProviderRepository aiProviderRepository;
     private final FileAssetRepository fileAssetRepository;
     private final FileStorageService fileStorageService;
     private final ImageAssetRepository imageAssetRepository;
     private final VideoAssetRepository videoAssetRepository;
-    private final CryptoService cryptoService;
     private final com.example.agentplatform.service.AgentRunService agentRunService;
 
     public ResourceController(AuthService authService, KnowledgeBaseService knowledgeBaseService,
-            AiProviderRepository aiProviderRepository,
             FileAssetRepository fileAssetRepository, FileStorageService fileStorageService, ImageAssetRepository imageAssetRepository,
-            VideoAssetRepository videoAssetRepository, CryptoService cryptoService,
+            VideoAssetRepository videoAssetRepository,
             com.example.agentplatform.service.AgentRunService agentRunService) {
         this.authService = authService;
         this.knowledgeBaseService = knowledgeBaseService;
-        this.aiProviderRepository = aiProviderRepository;
         this.fileAssetRepository = fileAssetRepository;
         this.fileStorageService = fileStorageService;
         this.imageAssetRepository = imageAssetRepository;
         this.videoAssetRepository = videoAssetRepository;
-        this.cryptoService = cryptoService;
         this.agentRunService = agentRunService;
     }
 
@@ -124,53 +114,6 @@ public class ResourceController {
             topK = Integer.parseInt(String.valueOf(body.get("topK")));
         }
         return knowledgeBaseService.search(user.getUserId(), id, required(body, "query"), topK);
-    }
-
-    @PostMapping("/ai-providers")
-    public Map<String, Object> createAiProvider(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        UserEntity user = authService.requireUser(request);
-        AiProviderEntity entity = new AiProviderEntity();
-        entity.setProviderId(UUID.randomUUID().toString());
-        entity.setUserId(user.getUserId());
-        entity.setName(required(body, "name"));
-        entity.setBaseUrl(required(body, "baseUrl"));
-        entity.setApiKeyCiphertext(cryptoService.encrypt(required(body, "apiKey")));
-        entity.setModelName(stringValue(body.get("modelName")));
-        entity.setEnabled(true);
-        entity.setCreatedAt(Instant.now());
-        entity.setUpdatedAt(Instant.now());
-        return aiProviderDto(aiProviderRepository.save(entity));
-    }
-
-    @GetMapping("/ai-providers")
-    public List<Map<String, Object>> listAiProviders(HttpServletRequest request) {
-        UserEntity user = authService.requireUser(request);
-        return aiProviderRepository.findByUserIdOrderByUpdatedAtDesc(user.getUserId()).stream()
-                .map(this::aiProviderDto)
-                .collect(java.util.stream.Collectors.toList());
-    }
-
-    @PutMapping("/ai-providers/{id}")
-    public Map<String, Object> updateAiProvider(@PathVariable String id, @RequestBody Map<String, Object> body,
-            HttpServletRequest request) {
-        UserEntity user = authService.requireUser(request);
-        AiProviderEntity entity = aiProviderRepository.findByProviderIdAndUserId(id, user.getUserId())
-                .orElseThrow(() -> new NoSuchElementException("AI provider not found: " + id));
-        if (body.containsKey("name")) entity.setName(required(body, "name"));
-        if (body.containsKey("baseUrl")) entity.setBaseUrl(required(body, "baseUrl"));
-        if (body.containsKey("apiKey")) entity.setApiKeyCiphertext(cryptoService.encrypt(required(body, "apiKey")));
-        if (body.containsKey("modelName")) entity.setModelName(stringValue(body.get("modelName")));
-        if (body.containsKey("enabled")) entity.setEnabled(Boolean.parseBoolean(String.valueOf(body.get("enabled"))));
-        entity.setUpdatedAt(Instant.now());
-        return aiProviderDto(aiProviderRepository.save(entity));
-    }
-
-    @DeleteMapping("/ai-providers/{id}")
-    public void deleteAiProvider(@PathVariable String id, HttpServletRequest request) {
-        UserEntity user = authService.requireUser(request);
-        AiProviderEntity entity = aiProviderRepository.findByProviderIdAndUserId(id, user.getUserId())
-                .orElseThrow(() -> new NoSuchElementException("AI provider not found: " + id));
-        aiProviderRepository.delete(entity);
     }
 
     @GetMapping("/assets/images")
@@ -257,20 +200,6 @@ public class ResourceController {
         } catch (IllegalArgumentException ex) {
             return MediaType.APPLICATION_OCTET_STREAM;
         }
-    }
-
-    private Map<String, Object> aiProviderDto(AiProviderEntity entity) {
-        Map<String, Object> dto = new LinkedHashMap<>();
-        dto.put("providerId", entity.getProviderId());
-        dto.put("userId", entity.getUserId());
-        dto.put("name", entity.getName());
-        dto.put("baseUrl", entity.getBaseUrl());
-        dto.put("modelName", entity.getModelName());
-        dto.put("enabled", entity.isEnabled());
-        dto.put("createdAt", entity.getCreatedAt());
-        dto.put("updatedAt", entity.getUpdatedAt());
-        dto.put("apiKeySet", entity.getApiKeyCiphertext() != null && !entity.getApiKeyCiphertext().isEmpty());
-        return dto;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

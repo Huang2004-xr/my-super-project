@@ -22,6 +22,7 @@ class CreateAgentRunRequest(BaseModel):
     knowledgeBaseId: Optional[str] = None
     capabilityHint: Optional[str] = None
     input: Dict[str, Any] = Field(default_factory=dict)
+    providerConfig: Optional[Dict[str, Any]] = None
 
     @field_validator("message")
     @classmethod

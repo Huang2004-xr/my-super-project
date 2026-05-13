@@ -40,6 +40,22 @@ public class CryptoService {
         }
     }
 
+    public String decrypt(String value) {
+        try {
+            byte[] payload = Base64.getDecoder().decode(value);
+            ByteBuffer buffer = ByteBuffer.wrap(payload);
+            byte[] iv = new byte[IV_LENGTH];
+            buffer.get(iv);
+            byte[] encrypted = new byte[buffer.remaining()];
+            buffer.get(encrypted);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, new GCMParameterSpec(TAG_LENGTH_BITS, iv));
+            return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to decrypt value", ex);
+        }
+    }
+
     private byte[] normalizeKey(String secret) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

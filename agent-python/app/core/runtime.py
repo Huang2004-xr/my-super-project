@@ -81,8 +81,14 @@ class AgentRuntime:
         try:
             trace.add("run_started", f"开始执行能力：{capability}")
             trace.add("capability_route", route_reason)
-            trace.add("llm.provider", self.llm.provider)
-            trace.add("llm.model", self.llm.model)
+            provider_config = request.providerConfig or {}
+            if provider_config:
+                trace.add("llm.provider", str(provider_config.get("name") or "external"))
+                trace.add("llm.api_format", str(provider_config.get("apiFormat") or "openai_chat_completions"))
+                trace.add("llm.model", str(provider_config.get("model") or ""))
+            else:
+                trace.add("llm.provider", self.llm.provider)
+                trace.add("llm.model", self.llm.model)
 
             steps, tool_name, artifact_type, artifact_title = self._workflow(capability)
             run.steps = steps
@@ -99,9 +105,9 @@ class AgentRuntime:
             run.toolCalls = [tool_call]
             trace.add("tool.completed", f"工具调用完成：{tool_name}")
 
-            trace.add("llm.request", f"调用本地Ollama模型生成{capability}结果")
-            llm_result = self.llm.generate(capability, request.message, artifact.data)
-            trace.add("llm.response", "本地Ollama模型已返回结果")
+            trace.add("llm.request", f"调用AI模型生成{capability}结果")
+            llm_result = self.llm.generate(capability, request.message, artifact.data, provider_config)
+            trace.add("llm.response", "AI模型已返回结果")
 
             artifact.data["llmResult"] = llm_result
             self._apply_llm_result(capability, artifact.data, llm_result)

@@ -24,6 +24,7 @@ import {
   uploadVideo
 } from './api';
 import { AdminConsole } from './admin/AdminConsole';
+import { AiProviderSettings } from './settings/AiProviderSettings';
 import type {
   AgentRun,
   Capability,
@@ -600,7 +601,7 @@ function App() {
           />
         )}
         {view === 'gallery' && <GalleryView onError={showError} />}
-        {view === 'settings' && <SettingsView />}
+        {view === 'settings' && <SettingsView onError={showError} />}
         <input ref={imageInputRef} hidden type="file" accept="image/*" onChange={handleImageChange} />
       </main>
 
@@ -1789,7 +1790,7 @@ function GalleryCard({ createdAt, onOpen, source, title }: { createdAt: string; 
   );
 }
 
-function SettingsView() {
+function SettingsView({ onError }: { onError: (error: unknown) => void }) {
   return (
     <section className="side-content">
       <h1>设置</h1>
@@ -1813,6 +1814,7 @@ function SettingsView() {
           <span>限制上传大小并保存真实文件资产。</span>
         </article>
       </div>
+      <AiProviderSettings onError={onError} />
     </section>
   );
 }

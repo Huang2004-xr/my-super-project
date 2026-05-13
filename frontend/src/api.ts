@@ -2,6 +2,9 @@ import type {
   AdminDashboardResponse,
   AdminPageResponse,
   AdminRunListItem,
+  AiProvider,
+  AiProviderRequest,
+  AiProviderTestResponse,
   AgentRun,
   AuthResponse,
   CapabilityDefinition,
@@ -241,6 +244,33 @@ export const fetchAdminRuns = (params: {
 export const fetchAdminRun = (runId: string) => request<AgentRun>(`/api/admin/agent-runs/${encodeURIComponent(runId)}`);
 
 export const fetchAdminRunTraces = (runId: string) => request<TraceEvent[]>(`/api/admin/agent-runs/${encodeURIComponent(runId)}/traces`);
+
+export const fetchAiProviders = () => request<AiProvider[]>('/api/ai-providers');
+
+export const createAiProvider = (payload: AiProviderRequest) =>
+  request<AiProvider>('/api/ai-providers', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+
+export const updateAiProvider = (providerId: string, payload: AiProviderRequest) =>
+  request<AiProvider>(`/api/ai-providers/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+
+export const deleteAiProvider = (providerId: string) =>
+  request<void>(`/api/ai-providers/${encodeURIComponent(providerId)}`, {
+    method: 'DELETE'
+  });
+
+export const testAiProvider = (providerId: string) =>
+  request<AiProviderTestResponse>(`/api/ai-providers/${encodeURIComponent(providerId)}/test`, {
+    method: 'POST'
+  }, 30000);
+
+export const fetchEffectiveAiProviders = () =>
+  request<Record<string, { providerType: string; name: string; capability: string; apiFormat?: string; model?: string }>>('/api/ai-providers/effective');
 
 export const fetchCapabilities = () => request<CapabilityDefinition[]>('/api/capabilities');
 

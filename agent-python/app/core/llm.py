@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -37,14 +37,20 @@ class LlmClient:
             result["error"] = error
         return result
 
-    def generate(self, capability: str, message: str, tool_context: Dict[str, Any]) -> str:
+    def generate(
+        self,
+        capability: str,
+        message: str,
+        tool_context: Dict[str, Any],
+        provider_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
         if capability == "TEXT_CHAT":
             quick_answer = self._capability_question_answer(message)
             if quick_answer:
                 return quick_answer
         system_prompt = self._system_prompt(capability)
         user_prompt = self._user_prompt(capability, message, tool_context)
-        return self.chat(system_prompt, user_prompt)
+        return self.chat(system_prompt, user_prompt, provider_config)
 
     def summarize_memory(self, existing_summary: str, messages: list[dict[str, str]]) -> str:
         transcript = "\n".join(
@@ -64,7 +70,9 @@ class LlmClient:
         )
         return self.chat(system_prompt, user_prompt)
 
-    def chat(self, system_prompt: str, user_prompt: str) -> str:
+    def chat(self, system_prompt: str, user_prompt: str, provider_config: Optional[Dict[str, Any]] = None) -> str:
+        if provider_config:
+            return self._chat_external(system_prompt, user_prompt, provider_config)
         if self.provider != "ollama":
             raise LlmError(f"unsupported LLM provider: {self.provider}")
         if not self._model_available():
@@ -98,6 +106,66 @@ class LlmClient:
         if not content:
             raise LlmError("Ollama returned an empty response")
         return content
+
+    def _chat_external(self, system_prompt: str, user_prompt: str, provider_config: Dict[str, Any]) -> str:
+        api_format = str(provider_config.get("apiFormat") or "openai_chat_completions").strip()
+        if api_format == "openai_responses":
+            raise LlmError("OpenAI Responses API provider is saved but not enabled for runtime calls yet")
+        if api_format != "openai_chat_completions":
+            raise LlmError(f"unsupported external API format: {api_format}")
+
+        base_url = str(provider_config.get("baseUrl") or "").strip().rstrip("/")
+        api_key = str(provider_config.get("apiKey") or "").strip()
+        model = str(provider_config.get("model") or "").strip()
+        auth_header_name = str(provider_config.get("authHeaderName") or "Authorization").strip()
+        if not base_url:
+            raise LlmError("external provider baseUrl is required")
+        if not api_key:
+            raise LlmError("external provider apiKey is required")
+        if not model:
+            raise LlmError("external provider model is required")
+
+        headers = {"Content-Type": "application/json"}
+        if auth_header_name.lower() == "authorization":
+            headers["Authorization"] = api_key if api_key.lower().startswith("bearer ") else f"Bearer {api_key}"
+        else:
+            headers[auth_header_name] = api_key
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.4,
+        }
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(self._external_chat_url(base_url), json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip()
+            raise LlmError(f"External provider request failed: HTTP {exc.response.status_code}. {detail}") from exc
+        except httpx.HTTPError as exc:
+            raise LlmError(f"External provider request failed: {exc}") from exc
+
+        content = ""
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if choices:
+            message = choices[0].get("message", {})
+            content = message.get("content") or choices[0].get("text") or ""
+        content = self._strip_thinking(str(content)).strip()
+        if not content:
+            raise LlmError("External provider returned an empty response")
+        return content
+
+    def _external_chat_url(self, base_url: str) -> str:
+        if base_url.endswith("/chat/completions"):
+            return base_url
+        if base_url.endswith("/v1"):
+            return f"{base_url}/chat/completions"
+        return f"{base_url}/v1/chat/completions"
 
     def _model_available(self) -> bool:
         with httpx.Client(timeout=min(self.timeout_seconds, 5.0)) as client:

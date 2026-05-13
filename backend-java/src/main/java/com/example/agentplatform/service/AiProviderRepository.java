@@ -8,4 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AiProviderRepository extends JpaRepository<AiProviderEntity, String> {
     List<AiProviderEntity> findByUserIdOrderByUpdatedAtDesc(String userId);
     Optional<AiProviderEntity> findByProviderIdAndUserId(String providerId, String userId);
+    List<AiProviderEntity> findByUserIdAndEnabledTrueOrderByUpdatedAtDesc(String userId);
 }

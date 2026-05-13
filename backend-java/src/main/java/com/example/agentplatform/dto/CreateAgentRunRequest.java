@@ -11,4 +11,5 @@ public class CreateAgentRunRequest {
     public String knowledgeBaseId;
     public String capabilityHint;
     public Map<String, Object> input = new LinkedHashMap<>();
+    public Map<String, Object> providerConfig;
 }

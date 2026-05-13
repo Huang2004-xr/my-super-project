@@ -176,6 +176,63 @@ export interface AuthResponse {
   user: User;
 }
 
+export type AiProviderCapability = 'ALL' | 'TEXT_CHAT' | 'IMAGE_CREATION' | 'VIDEO_CREATION' | 'KNOWLEDGE_RETRIEVAL';
+export type AiProviderApiFormat = 'openai_chat_completions' | 'openai_responses' | 'anthropic_messages';
+
+export interface AiProvider {
+  providerId: string;
+  userId: string;
+  name: string;
+  providerType?: string | null;
+  apiFormat: AiProviderApiFormat;
+  authHeaderName?: string | null;
+  capabilities: AiProviderCapability[];
+  baseUrl: string;
+  modelName?: string | null;
+  defaultModel?: string | null;
+  chatModel?: string | null;
+  imageModel?: string | null;
+  videoModel?: string | null;
+  knowledgeModel?: string | null;
+  officialUrl?: string | null;
+  remark?: string | null;
+  configJson?: string | null;
+  enabled: boolean;
+  apiKeySet: boolean;
+  lastTestedAt?: string | null;
+  lastTestStatus?: string | null;
+  lastTestMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiProviderRequest {
+  name: string;
+  providerType?: string;
+  apiFormat: AiProviderApiFormat;
+  authHeaderName?: string;
+  capabilities: AiProviderCapability[];
+  baseUrl: string;
+  apiKey?: string;
+  modelName?: string | null;
+  defaultModel?: string | null;
+  chatModel?: string | null;
+  imageModel?: string | null;
+  videoModel?: string | null;
+  knowledgeModel?: string | null;
+  officialUrl?: string | null;
+  remark?: string | null;
+  configJson?: string | null;
+  enabled?: boolean;
+}
+
+export interface AiProviderTestResponse {
+  ok: boolean;
+  status: string;
+  message: string;
+  testedAt: string;
+}
+
 export interface AdminPageResponse<T> {
   items: T[];
   total: number;
