@@ -48,6 +48,10 @@ class LlmClient:
         tool_context: Dict[str, Any],
         provider_config: Optional[Dict[str, Any]] = None,
     ) -> str:
+        if capability == "TEXT_CHAT":
+            memory_answer = self._recent_user_message_answer(message, tool_context)
+            if memory_answer:
+                return memory_answer
         if capability == "TEXT_CHAT" and not provider_config:
             quick_answer = self._capability_question_answer(message)
             if quick_answer:
@@ -422,6 +426,58 @@ class LlmClient:
 
     def _strip_thinking(self, content: str) -> str:
         return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE)
+
+    def _recent_user_message_answer(self, message: str, tool_context: Dict[str, Any]) -> str:
+        if not self._asks_recent_user_message(message):
+            return ""
+        previous = self._latest_recent_message(tool_context, "USER")
+        if previous:
+            return f"你刚才问的是：“{previous}”。"
+        return "我还没有看到你之前的提问。"
+
+    def _asks_recent_user_message(self, message: str) -> bool:
+        normalized = re.sub(r"\s+", "", message or "")
+        if not normalized:
+            return False
+        question_terms = ("什么", "啥", "哪句", "哪个", "内容", "？", "?")
+        if not any(term in normalized for term in question_terms):
+            return False
+        recent_user_terms = (
+            "刚才问",
+            "刚刚问",
+            "刚问",
+            "之前问",
+            "前面问",
+            "上次问",
+            "上一句",
+            "上句话",
+            "前一句",
+            "前句话",
+            "上一条",
+            "上条",
+            "上个问题",
+            "上一个问题",
+            "我刚才说",
+            "我刚刚说",
+            "我刚才发",
+            "我上一句",
+            "我的上一句",
+        )
+        return any(term in normalized for term in recent_user_terms)
+
+    def _latest_recent_message(self, tool_context: Dict[str, Any], role: str) -> str:
+        recent_messages = tool_context.get("recentMessages") or []
+        if not isinstance(recent_messages, list):
+            return ""
+        for item in reversed(recent_messages):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("role") or "").upper() != role:
+                continue
+            content = str(item.get("content") or "").strip()
+            if content:
+                return content
+        return ""
 
     def _capability_question_answer(self, message: str) -> str:
         asks_ability = any(term in message for term in ("可以", "能不能", "能否", "支持", "会不会", "你能", "你可以"))

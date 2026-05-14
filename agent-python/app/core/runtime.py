@@ -106,9 +106,9 @@ class AgentRuntime:
             run.toolCalls = [tool_call]
             trace.add("tool.completed", f"工具调用完成：{tool_name}")
 
-            trace.add("llm.request", f"调用 AI 模型生成 {capability} 结果")
+            trace.add("llm.request", f"生成 {capability} 结果")
             llm_result = self.llm.generate(capability, request.message, artifact.data, provider_config)
-            trace.add("llm.response", "AI 模型已返回结果")
+            trace.add("llm.response", "结果已返回")
 
             artifact.data["llmResult"] = llm_result
             self._apply_llm_result(capability, artifact.data, llm_result)
