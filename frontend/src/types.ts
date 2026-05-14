@@ -178,12 +178,15 @@ export interface AuthResponse {
 
 export type AiProviderCapability = 'ALL' | 'TEXT_CHAT' | 'IMAGE_CREATION' | 'VIDEO_CREATION' | 'KNOWLEDGE_RETRIEVAL';
 export type AiProviderApiFormat = 'openai_chat_completions' | 'openai_responses' | 'anthropic_messages';
+export type AiProviderRegion = 'CN' | 'GLOBAL' | 'CUSTOM';
 
 export interface AiProvider {
   providerId: string;
   userId: string;
   name: string;
   providerType?: string | null;
+  region?: AiProviderRegion | string | null;
+  presetKey?: string | null;
   apiFormat: AiProviderApiFormat;
   authHeaderName?: string | null;
   capabilities: AiProviderCapability[];
@@ -197,18 +200,53 @@ export interface AiProvider {
   officialUrl?: string | null;
   remark?: string | null;
   configJson?: string | null;
+  modelAliases?: string | null;
+  enableFallback: boolean;
   enabled: boolean;
   apiKeySet: boolean;
   lastTestedAt?: string | null;
   lastTestStatus?: string | null;
   lastTestMessage?: string | null;
+  lastTestErrorCode?: string | null;
+  lastTestHttpStatus?: number | null;
+  lastTestRequestId?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AiProviderPreset {
+  key: string;
+  label: string;
+  region: AiProviderRegion;
+  apiFormat: AiProviderApiFormat;
+  authHeaderName: string;
+  baseUrl: string;
+  defaultModel: string;
+  officialUrl?: string | null;
+  remark?: string | null;
+  modelAliases?: Record<string, string> | null;
+  modelOptions?: string[] | null;
+}
+
+export interface EffectiveAiProviderSummary {
+  providerType: string;
+  name: string;
+  capability: string;
+  apiFormat?: string;
+  model?: string;
+  region?: string;
+  lastTestStatus?: string | null;
+  lastTestedAt?: string | null;
+  lastTestMessage?: string | null;
+  lastTestErrorCode?: string | null;
+  fallbackEnabled?: boolean;
 }
 
 export interface AiProviderRequest {
   name: string;
   providerType?: string;
+  region?: AiProviderRegion | string;
+  presetKey?: string | null;
   apiFormat: AiProviderApiFormat;
   authHeaderName?: string;
   capabilities: AiProviderCapability[];
@@ -223,6 +261,8 @@ export interface AiProviderRequest {
   officialUrl?: string | null;
   remark?: string | null;
   configJson?: string | null;
+  modelAliases?: string | null;
+  enableFallback?: boolean;
   enabled?: boolean;
 }
 
@@ -230,6 +270,9 @@ export interface AiProviderTestResponse {
   ok: boolean;
   status: string;
   message: string;
+  errorCode?: string | null;
+  httpStatus?: number | null;
+  providerRequestId?: string | null;
   testedAt: string;
 }
 

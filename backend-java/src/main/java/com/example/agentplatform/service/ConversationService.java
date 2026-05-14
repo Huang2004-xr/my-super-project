@@ -114,8 +114,9 @@ public class ConversationService {
             entity.setTitle(summarize(message));
         }
         entity.setLastRunId(runId);
-        saveMessage(userId, conversationId, "USER", message, capability, runId);
-        saveMessage(userId, conversationId, "ASSISTANT", finalResult, capability, runId);
+        Instant now = Instant.now();
+        saveMessage(userId, conversationId, "USER", message, capability, runId, now);
+        saveMessage(userId, conversationId, "ASSISTANT", finalResult, capability, runId, now.plusMillis(1));
         return toDto(repository.save(entity));
     }
 
@@ -128,6 +129,11 @@ public class ConversationService {
 
     private void saveMessage(String userId, String conversationId, String role, String content, String capability,
             String runId) {
+        saveMessage(userId, conversationId, role, content, capability, runId, Instant.now());
+    }
+
+    private void saveMessage(String userId, String conversationId, String role, String content, String capability,
+            String runId, Instant createdAt) {
         com.example.agentplatform.model.ConversationMessageEntity message =
                 new com.example.agentplatform.model.ConversationMessageEntity();
         message.setMessageId(UUID.randomUUID().toString());
@@ -137,7 +143,7 @@ public class ConversationService {
         message.setContent(content == null ? "" : content);
         message.setCapability(capability);
         message.setRunId(runId);
-        message.setCreatedAt(java.time.Instant.now());
+        message.setCreatedAt(createdAt);
         messageRepository.save(message);
     }
 

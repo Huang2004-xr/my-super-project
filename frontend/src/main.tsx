@@ -741,6 +741,7 @@ function AgentView({
   const hasAssistantMessageForCurrentRun = Boolean(
     currentRun && messages.some((message) => message.role === 'ASSISTANT' && message.runId === currentRun.runId)
   );
+  const orderedMessages = useMemo(() => orderConversationMessages(messages), [messages]);
   const capabilitySummary = useMemo(() => {
     if (!capabilities.length) return QUICK_ACTIONS;
     return capabilities.map((item) => ({
@@ -803,7 +804,7 @@ function AgentView({
         </div>
       ) : (
         <div className="conversation">
-          {messages.map((message) => (
+          {orderedMessages.map((message) => (
             <MessageCard key={message.messageId} message={message} />
           ))}
           {currentRun && !hasAssistantMessageForCurrentRun && <AssistantRunCard run={currentRun} />}
@@ -888,27 +889,86 @@ function AgentView({
 }
 
 function MessageCard({ message }: { message: ConversationMessage }) {
+  const isUser = message.role === 'USER';
   return (
-    <article className="message">
-      <span className="message-role">{message.role === 'USER' ? '我' : 'Agent'}</span>
+    <article className={isUser ? 'message user' : 'message assistant'}>
       <div className="message-body">
-        {message.capability && <span className="capability-tag">{CAPABILITY_LABELS[message.capability]}</span>}
+        <div className="message-meta">
+          <span className="message-role">{isUser ? '我' : 'Agent'}</span>
+          {!isUser && message.capability && <span className="capability-tag">{CAPABILITY_LABELS[message.capability]}</span>}
+        </div>
         <p>{message.content}</p>
       </div>
     </article>
   );
 }
 
+function orderConversationMessages(messages: ConversationMessage[]) {
+  const grouped = new Map<string, ConversationMessage[]>();
+  const groupOrder = new Map<string, number>();
+
+  messages.forEach((message, index) => {
+    const key = message.runId || `message-${message.messageId}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+      groupOrder.set(key, index);
+    }
+    grouped.get(key)!.push(message);
+  });
+
+  return Array.from(grouped.entries())
+    .sort((left, right) => {
+      const leftTime = groupTime(left[1]);
+      const rightTime = groupTime(right[1]);
+      if (leftTime !== rightTime) return leftTime - rightTime;
+      return (groupOrder.get(left[0]) ?? 0) - (groupOrder.get(right[0]) ?? 0);
+    })
+    .flatMap(([, group]) => [...group].sort(compareMessagesWithinRun));
+}
+
+function groupTime(messages: ConversationMessage[]) {
+  return Math.min(...messages.map((message) => Date.parse(message.createdAt) || 0));
+}
+
+function compareMessagesWithinRun(left: ConversationMessage, right: ConversationMessage) {
+  const leftRank = messageRoleRank(left.role);
+  const rightRank = messageRoleRank(right.role);
+  if (leftRank !== rightRank) return leftRank - rightRank;
+  const leftTime = Date.parse(left.createdAt) || 0;
+  const rightTime = Date.parse(right.createdAt) || 0;
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return left.messageId.localeCompare(right.messageId);
+}
+
+function messageRoleRank(role: ConversationMessage['role']) {
+  if (role === 'USER') return 0;
+  if (role === 'ASSISTANT') return 1;
+  return 2;
+}
+
 function AssistantRunCard({ run }: { run: AgentRun }) {
+  const provider = traceValue(run, 'llm.provider');
+  const apiFormat = traceValue(run, 'llm.api_format');
+  const model = traceValue(run, 'llm.model');
+  const providerLabel = provider || model
+    ? [provider, apiFormat, model].filter(Boolean).join(' / ')
+    : '';
   return (
-    <article className="message">
-      <span className="message-role">Agent</span>
+    <article className="message assistant">
       <div className="message-body">
-        <span className="capability-tag">{CAPABILITY_LABELS[run.capability]}</span>
+        <div className="message-meta">
+          <span className="message-role">Agent</span>
+          <span className="capability-tag">{CAPABILITY_LABELS[run.capability]}</span>
+          {providerLabel && <span className="run-provider-tag">使用模型：{providerLabel}</span>}
+        </div>
         <p>{run.finalResult || '暂无结果'}</p>
       </div>
     </article>
   );
+}
+
+function traceValue(run: AgentRun, eventType: string) {
+  return run.traces?.find((trace) => trace.eventType === eventType)?.message || '';
 }
 
 function formatKnowledgeStatus(status?: string | null) {
@@ -1794,12 +1854,12 @@ function SettingsView({ onError }: { onError: (error: unknown) => void }) {
   return (
     <section className="side-content">
       <h1>设置</h1>
-      <p>当前为本地原型模式，文字沟通、视频创作、图片创作和知识库检索均由本地 Ollama qwen3:4b 生成文本产物。</p>
-      <p>前端只调用 Java 后端，Java 再调用 Python Agent 服务；前端不会直接访问 Python 或 Ollama。</p>
+      <p>当前 AI 运行模式由下方外部 API Provider 配置决定；未启用外部供应商时才回退到本地 Ollama。</p>
+      <p>前端只调用 Java 后端，Java 再选择 Provider 并调用 Python Agent 服务；前端不会直接访问 Python、Ollama 或外部模型。</p>
       <div className="settings-grid">
         <article className="settings-card">
-          <strong>本地模型模式</strong>
-          <span>Ollama qwen3:4b 负责文本产物。</span>
+          <strong>Provider 路由</strong>
+          <span>按聊天、图片创作、视频创作、知识库问答选择已启用供应商。</span>
         </article>
         <article className="settings-card">
           <strong>Java 后端</strong>

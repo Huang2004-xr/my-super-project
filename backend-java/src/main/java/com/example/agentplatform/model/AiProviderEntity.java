@@ -22,6 +22,12 @@ public class AiProviderEntity {
     @Column(name = "provider_type", length = 80)
     private String providerType;
 
+    @Column(name = "region", length = 40)
+    private String region;
+
+    @Column(name = "preset_key", length = 120)
+    private String presetKey;
+
     @Column(name = "api_format", length = 80)
     private String apiFormat;
 
@@ -64,6 +70,12 @@ public class AiProviderEntity {
     @Column(name = "config_json", columnDefinition = "TEXT")
     private String configJson;
 
+    @Column(name = "model_aliases", columnDefinition = "TEXT")
+    private String modelAliases;
+
+    @Column(name = "enable_fallback", nullable = false)
+    private boolean enableFallback;
+
     @Column(name = "last_tested_at")
     private Instant lastTestedAt;
 
@@ -72,6 +84,15 @@ public class AiProviderEntity {
 
     @Column(name = "last_test_message", length = 1000)
     private String lastTestMessage;
+
+    @Column(name = "last_test_error_code", length = 80)
+    private String lastTestErrorCode;
+
+    @Column(name = "last_test_http_status")
+    private Integer lastTestHttpStatus;
+
+    @Column(name = "last_test_request_id", length = 120)
+    private String lastTestRequestId;
 
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
@@ -90,6 +111,10 @@ public class AiProviderEntity {
     public void setName(String name) { this.name = name; }
     public String getProviderType() { return providerType; }
     public void setProviderType(String providerType) { this.providerType = providerType; }
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
+    public String getPresetKey() { return presetKey; }
+    public void setPresetKey(String presetKey) { this.presetKey = presetKey; }
     public String getApiFormat() { return apiFormat; }
     public void setApiFormat(String apiFormat) { this.apiFormat = apiFormat; }
     public String getAuthHeaderName() { return authHeaderName; }
@@ -118,12 +143,22 @@ public class AiProviderEntity {
     public void setRemark(String remark) { this.remark = remark; }
     public String getConfigJson() { return configJson; }
     public void setConfigJson(String configJson) { this.configJson = configJson; }
+    public String getModelAliases() { return modelAliases; }
+    public void setModelAliases(String modelAliases) { this.modelAliases = modelAliases; }
+    public boolean isEnableFallback() { return enableFallback; }
+    public void setEnableFallback(boolean enableFallback) { this.enableFallback = enableFallback; }
     public Instant getLastTestedAt() { return lastTestedAt; }
     public void setLastTestedAt(Instant lastTestedAt) { this.lastTestedAt = lastTestedAt; }
     public String getLastTestStatus() { return lastTestStatus; }
     public void setLastTestStatus(String lastTestStatus) { this.lastTestStatus = lastTestStatus; }
     public String getLastTestMessage() { return lastTestMessage; }
     public void setLastTestMessage(String lastTestMessage) { this.lastTestMessage = lastTestMessage; }
+    public String getLastTestErrorCode() { return lastTestErrorCode; }
+    public void setLastTestErrorCode(String lastTestErrorCode) { this.lastTestErrorCode = lastTestErrorCode; }
+    public Integer getLastTestHttpStatus() { return lastTestHttpStatus; }
+    public void setLastTestHttpStatus(Integer lastTestHttpStatus) { this.lastTestHttpStatus = lastTestHttpStatus; }
+    public String getLastTestRequestId() { return lastTestRequestId; }
+    public void setLastTestRequestId(String lastTestRequestId) { this.lastTestRequestId = lastTestRequestId; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public Instant getCreatedAt() { return createdAt; }

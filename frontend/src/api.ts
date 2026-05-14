@@ -3,8 +3,10 @@ import type {
   AdminPageResponse,
   AdminRunListItem,
   AiProvider,
+  AiProviderPreset,
   AiProviderRequest,
   AiProviderTestResponse,
+  EffectiveAiProviderSummary,
   AgentRun,
   AuthResponse,
   CapabilityDefinition,
@@ -247,6 +249,8 @@ export const fetchAdminRunTraces = (runId: string) => request<TraceEvent[]>(`/ap
 
 export const fetchAiProviders = () => request<AiProvider[]>('/api/ai-providers');
 
+export const fetchAiProviderPresets = () => request<AiProviderPreset[]>('/api/ai-provider-presets');
+
 export const createAiProvider = (payload: AiProviderRequest) =>
   request<AiProvider>('/api/ai-providers', {
     method: 'POST',
@@ -270,7 +274,7 @@ export const testAiProvider = (providerId: string) =>
   }, 30000);
 
 export const fetchEffectiveAiProviders = () =>
-  request<Record<string, { providerType: string; name: string; capability: string; apiFormat?: string; model?: string }>>('/api/ai-providers/effective');
+  request<Record<string, EffectiveAiProviderSummary>>('/api/ai-providers/effective');
 
 export const fetchCapabilities = () => request<CapabilityDefinition[]>('/api/capabilities');
 

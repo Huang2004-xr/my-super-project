@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   createAiProvider,
   deleteAiProvider,
+  fetchAiProviderPresets,
   fetchAiProviders,
   fetchEffectiveAiProviders,
   testAiProvider,
@@ -11,7 +12,10 @@ import type {
   AiProvider,
   AiProviderApiFormat,
   AiProviderCapability,
-  AiProviderRequest
+  AiProviderPreset,
+  AiProviderRegion,
+  AiProviderRequest,
+  EffectiveAiProviderSummary
 } from '../types';
 
 const CAPABILITY_OPTIONS: Array<{ value: Exclude<AiProviderCapability, 'ALL'>; label: string }> = [
@@ -27,8 +31,15 @@ const API_FORMAT_LABELS: Record<AiProviderApiFormat, string> = {
   anthropic_messages: 'Anthropic Messages'
 };
 
+const FALLBACK_PROVIDER_PRESETS: AiProviderPreset[] = [
+  { key: 'custom-openai-compatible', label: '手动配置 OpenAI-compatible', region: 'CUSTOM', apiFormat: 'openai_chat_completions', authHeaderName: 'Authorization', baseUrl: '', defaultModel: '', modelOptions: [] },
+  { key: 'mimo-token-plan-cn', label: 'MiMo Token Plan CN', region: 'CN', apiFormat: 'anthropic_messages', authHeaderName: 'x-api-key', baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic', defaultModel: 'mimo-v2.5-pro', modelOptions: ['mimo-v2.5-pro'] }
+];
+
 interface ProviderFormState {
   providerId?: string;
+  presetKey: string;
+  region: AiProviderRegion;
   name: string;
   remark: string;
   officialUrl: string;
@@ -43,7 +54,11 @@ interface ProviderFormState {
   imageModel: string;
   videoModel: string;
   knowledgeModel: string;
+  thinkingModel: string;
+  fastModel: string;
+  strongModel: string;
   configJson: string;
+  enableFallback: boolean;
   testModel: string;
   testPrompt: string;
   testTimeoutSeconds: string;
@@ -58,6 +73,8 @@ interface ProviderFormState {
 }
 
 const EMPTY_FORM: ProviderFormState = {
+  presetKey: 'custom-openai-compatible',
+  region: 'CUSTOM',
   name: '',
   remark: '',
   officialUrl: '',
@@ -72,7 +89,11 @@ const EMPTY_FORM: ProviderFormState = {
   imageModel: '',
   videoModel: '',
   knowledgeModel: '',
+  thinkingModel: '',
+  fastModel: '',
+  strongModel: '',
   configJson: '{\n  "env": {},\n  "includeCoAuthoredBy": false\n}',
+  enableFallback: false,
   testModel: '',
   testPrompt: 'Who are you?',
   testTimeoutSeconds: '45',
@@ -88,7 +109,8 @@ const EMPTY_FORM: ProviderFormState = {
 
 export function AiProviderSettings({ onError }: { onError: (error: unknown) => void }) {
   const [providers, setProviders] = useState<AiProvider[]>([]);
-  const [effective, setEffective] = useState<Record<string, { providerType: string; name: string; model?: string }> | null>(null);
+  const [presets, setPresets] = useState<AiProviderPreset[]>(FALLBACK_PROVIDER_PRESETS);
+  const [effective, setEffective] = useState<Record<string, EffectiveAiProviderSummary> | null>(null);
   const [loading, setLoading] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProviderFormState | null>(null);
@@ -108,6 +130,8 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
     if (!form || jsonManuallyEdited) return;
     setForm((current) => current ? { ...current, configJson: buildAutoConfigJson(current) } : current);
   }, [
+    form?.presetKey,
+    form?.region,
     form?.name,
     form?.remark,
     form?.officialUrl,
@@ -121,6 +145,10 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
     form?.imageModel,
     form?.videoModel,
     form?.knowledgeModel,
+    form?.thinkingModel,
+    form?.fastModel,
+    form?.strongModel,
+    form?.enableFallback,
     form?.testModel,
     form?.testPrompt,
     form?.testTimeoutSeconds,
@@ -140,15 +168,20 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
     return hasAll && enabled.length === 1 ? '外部 API' : '混合配置';
   }, [providers]);
 
+  const selectedPreset = form ? presets.find((item) => item.key === form.presetKey) : null;
+  const modelOptions = selectedPreset?.modelOptions || [];
+
   async function reload() {
     setLoading(true);
     try {
-      const [providerList, effectiveMap] = await Promise.all([
+      const [providerList, effectiveMap, presetList] = await Promise.all([
         fetchAiProviders(),
-        fetchEffectiveAiProviders().catch(() => null)
+        fetchEffectiveAiProviders().catch(() => null),
+        fetchAiProviderPresets().catch(() => FALLBACK_PROVIDER_PRESETS)
       ]);
       setProviders(providerList);
       setEffective(effectiveMap);
+      if (presetList.length) setPresets(presetList);
     } catch (err) {
       onError(err);
     } finally {
@@ -168,6 +201,8 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
     const nextForm = {
       ...EMPTY_FORM,
       providerId: provider.providerId,
+      presetKey: provider.presetKey || 'custom-openai-compatible',
+      region: (provider.region as AiProviderRegion) || 'CUSTOM',
       name: provider.name,
       remark: provider.remark || '',
       officialUrl: provider.officialUrl || '',
@@ -181,7 +216,11 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
       imageModel: provider.imageModel || '',
       videoModel: provider.videoModel || '',
       knowledgeModel: provider.knowledgeModel || '',
+      thinkingModel: readModelAlias(provider.modelAliases, 'thinking'),
+      fastModel: readModelAlias(provider.modelAliases, 'fast'),
+      strongModel: readModelAlias(provider.modelAliases, 'strong'),
       configJson: provider.configJson || EMPTY_FORM.configJson,
+      enableFallback: provider.enableFallback || false,
       enabled: provider.enabled,
       apiKeySet: provider.apiKeySet
     };
@@ -285,7 +324,12 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
               <span>{API_FORMAT_LABELS[provider.apiFormat] || provider.apiFormat}</span>
               <small>{provider.baseUrl}</small>
               <div className="provider-tags">{capabilityLabels(provider.capabilities).map((label) => <em key={label}>{label}</em>)}</div>
-              {provider.lastTestMessage && <p className="provider-test-message">{provider.lastTestStatus}: {provider.lastTestMessage}</p>}
+              {provider.lastTestMessage && (
+                <p className="provider-test-message">
+                  {provider.lastTestStatus}: {provider.lastTestErrorCode ? `${provider.lastTestErrorCode} - ` : ''}{provider.lastTestMessage}
+                  {provider.lastTestHttpStatus ? ` (HTTP ${provider.lastTestHttpStatus})` : ''}
+                </p>
+              )}
             </div>
             <div className="provider-row-actions">
               <button type="button" onClick={() => handleTest(provider)} disabled={testingId === provider.providerId}>{testingId === provider.providerId ? '测试中' : '测试'}</button>
@@ -308,6 +352,25 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
             </header>
 
             <div className="provider-editor-body">
+              <section className="preset-panel">
+                <div className="provider-form-grid two">
+                  <Field label="Provider 预设">
+                    <select value={form.presetKey} onChange={(event) => applyPreset(event.target.value)}>
+                      {presets.map((preset) => (
+                        <option key={preset.key} value={preset.key}>{preset.label}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="区域">
+                    <select value={form.region} onChange={(event) => setFormValue('region', event.target.value as AiProviderRegion)}>
+                      <option value="CN">CN</option>
+                      <option value="GLOBAL">GLOBAL</option>
+                      <option value="CUSTOM">CUSTOM</option>
+                    </select>
+                  </Field>
+                </div>
+              </section>
+
               <div className="provider-form-grid two">
                 <Field label="供应商名称">
                   <input value={form.name} onChange={(event) => setFormValue('name', event.target.value)} placeholder="例如：OpenAI 官方" required />
@@ -334,7 +397,7 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
               <Field label="请求地址" sideLabel="管理与测试">
                 <input value={form.baseUrl} onChange={(event) => setFormValue('baseUrl', event.target.value)} placeholder="https://your-api-endpoint.com" required />
               </Field>
-              <div className="provider-warning">填写兼容 OpenAI 的服务端点，不要以斜杠结尾；如果已经包含 /v1 也可以直接填写。</div>
+              <div className="provider-warning">填写兼容 OpenAI 或 Anthropic Messages 的服务端点，不要以斜杠结尾；如果已经包含 /v1 也可以直接填写。</div>
 
               <div className="provider-form-grid two">
                 <Field label="API 格式">
@@ -376,9 +439,26 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
                 )}
               </section>
 
+              {modelOptions.length > 0 && (
+                <div className="model-options">
+                  {modelOptions.map((model) => (
+                    <button type="button" key={model} onClick={() => applyModelOption(model)}>{model}</button>
+                  ))}
+                </div>
+              )}
+
               <div className="provider-form-grid two">
                 <Field label="默认模型">
                   <input value={form.defaultModel} onChange={(event) => setFormValue('defaultModel', event.target.value)} placeholder="例如：gpt-4o-mini" />
+                </Field>
+                <Field label="推理模型">
+                  <input value={form.thinkingModel} onChange={(event) => setFormValue('thinkingModel', event.target.value)} placeholder="可选，例如强推理模型" />
+                </Field>
+                <Field label="快速模型">
+                  <input value={form.fastModel} onChange={(event) => setFormValue('fastModel', event.target.value)} placeholder="可选，例如轻量模型" />
+                </Field>
+                <Field label="强力模型">
+                  <input value={form.strongModel} onChange={(event) => setFormValue('strongModel', event.target.value)} placeholder="可选，例如高质量模型" />
                 </Field>
                 <Field label="聊天模型">
                   <input value={form.chatModel} onChange={(event) => setFormValue('chatModel', event.target.value)} placeholder="留空使用默认模型" />
@@ -393,6 +473,16 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
                   <input value={form.knowledgeModel} onChange={(event) => setFormValue('knowledgeModel', event.target.value)} placeholder="留空使用默认模型" />
                 </Field>
               </div>
+
+              <section className="capability-picker">
+                <div className="capability-picker-head">
+                  <strong>失败回退</strong>
+                  <label className="switch-line">
+                    <input type="checkbox" checked={form.enableFallback} onChange={(event) => setFormValue('enableFallback', event.target.checked)} />
+                    <span>启用后仅在网络、超时、限流或服务端暂不可用时尝试备用供应商</span>
+                  </label>
+                </div>
+              </section>
 
               <AdvancedSection title="配置 JSON" open={openAdvanced.json} onToggle={() => toggleAdvanced('json')}>
                 <div className="json-tools">
@@ -411,9 +501,9 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
               </AdvancedSection>
               <AdvancedSection title="代理配置" open={openAdvanced.proxy} onToggle={() => toggleAdvanced('proxy')}>
                 <div className="provider-form-grid two">
-                  <Field label="代理地址"><input value={form.proxyUrl} onChange={(event) => setFormValue('proxyUrl', event.target.value)} placeholder="http://127.0.0.1:7890 / socks5://127.0.0.1:1080" /></Field>
-                  <Field label="用户名"><input value={form.proxyUsername} onChange={(event) => setFormValue('proxyUsername', event.target.value)} placeholder="可选" /></Field>
-                  <Field label="密码"><input value={form.proxyPassword} onChange={(event) => setFormValue('proxyPassword', event.target.value)} type="password" placeholder="可选" /></Field>
+                  <Field label="代理地址"><input value={form.proxyUrl} onChange={(event) => setFormValue('proxyUrl', event.target.value)} placeholder="暂未启用；后续接入 Java 测试和 Python 调用" disabled /></Field>
+                  <Field label="用户名"><input value={form.proxyUsername} onChange={(event) => setFormValue('proxyUsername', event.target.value)} placeholder="暂未启用" disabled /></Field>
+                  <Field label="密码"><input value={form.proxyPassword} onChange={(event) => setFormValue('proxyPassword', event.target.value)} type="password" placeholder="暂未启用" disabled /></Field>
                 </div>
               </AdvancedSection>
               <AdvancedSection title="计费配置" open={openAdvanced.billing} onToggle={() => toggleAdvanced('billing')}>
@@ -458,7 +548,46 @@ export function AiProviderSettings({ onError }: { onError: (error: unknown) => v
     setForm((current) => current ? {
       ...current,
       apiFormat,
-      authHeaderName: current.authHeaderName || defaultAuthHeader(apiFormat)
+      authHeaderName: defaultAuthHeader(apiFormat)
+    } : current);
+  }
+
+  function applyPreset(presetKey: string) {
+    const preset = presets.find((item) => item.key === presetKey);
+    if (!preset) return;
+    setJsonManuallyEdited(false);
+    setForm((current) => {
+      if (!current) return current;
+      const next: ProviderFormState = {
+        ...current,
+        presetKey: preset.key,
+        region: preset.region,
+        name: current.name || preset.label,
+        remark: current.remark || preset.remark || '',
+        officialUrl: current.officialUrl || preset.officialUrl || '',
+        apiFormat: preset.apiFormat,
+        authHeaderName: preset.authHeaderName,
+        baseUrl: preset.baseUrl || current.baseUrl,
+        defaultModel: preset.defaultModel || current.defaultModel,
+        chatModel: current.chatModel || preset.defaultModel,
+        imageModel: current.imageModel || preset.defaultModel,
+        videoModel: current.videoModel || preset.defaultModel,
+        knowledgeModel: current.knowledgeModel || preset.defaultModel,
+        thinkingModel: current.thinkingModel || preset.modelAliases?.thinking || '',
+        fastModel: current.fastModel || preset.modelAliases?.fast || preset.defaultModel,
+        strongModel: current.strongModel || preset.modelAliases?.strong || preset.defaultModel,
+        testModel: current.testModel || preset.defaultModel
+      };
+      return { ...next, configJson: buildAutoConfigJson(next) };
+    });
+  }
+
+  function applyModelOption(model: string) {
+    setForm((current) => current ? {
+      ...current,
+      defaultModel: current.defaultModel || model,
+      chatModel: current.chatModel || model,
+      testModel: current.testModel || model
     } : current);
   }
 
@@ -504,6 +633,8 @@ function toPayload(form: ProviderFormState): AiProviderRequest {
   return {
     name: form.name,
     providerType: 'external',
+    region: form.region,
+    presetKey: form.presetKey,
     apiFormat: form.apiFormat,
     authHeaderName: form.authHeaderName,
     capabilities: form.useAllCapabilities ? ['ALL'] : form.capabilities,
@@ -518,6 +649,8 @@ function toPayload(form: ProviderFormState): AiProviderRequest {
     officialUrl: form.officialUrl || null,
     remark: form.remark || null,
     configJson: JSON.stringify(config, null, 2),
+    modelAliases: buildModelAliasesJson(form),
+    enableFallback: form.enableFallback,
     enabled: form.enabled
   };
 }
@@ -526,6 +659,8 @@ function providerToRequest(provider: AiProvider): AiProviderRequest {
   return {
     name: provider.name,
     providerType: provider.providerType || 'external',
+    region: provider.region || 'CUSTOM',
+    presetKey: provider.presetKey || null,
     apiFormat: provider.apiFormat,
     authHeaderName: provider.authHeaderName || defaultAuthHeader(provider.apiFormat),
     capabilities: provider.capabilities,
@@ -539,6 +674,8 @@ function providerToRequest(provider: AiProvider): AiProviderRequest {
     officialUrl: provider.officialUrl || null,
     remark: provider.remark || null,
     configJson: provider.configJson || null,
+    modelAliases: provider.modelAliases || null,
+    enableFallback: provider.enableFallback,
     enabled: provider.enabled
   };
 }
@@ -559,9 +696,8 @@ function mergeConfigJson(form: ProviderFormState) {
       degradeThresholdMs: numberOrUndefined(form.testDegradeMs)
     },
     proxy: {
-      url: form.proxyUrl || undefined,
-      username: form.proxyUsername || undefined,
-      passwordSet: Boolean(form.proxyPassword)
+      enabled: false,
+      passwordSet: false
     },
     billing: {
       costMultiplier: numberOrUndefined(form.costMultiplier),
@@ -573,6 +709,8 @@ function mergeConfigJson(form: ProviderFormState) {
 function buildAutoConfigJson(form: ProviderFormState) {
   return JSON.stringify({
     provider: {
+      presetKey: form.presetKey || undefined,
+      region: form.region || undefined,
       name: form.name || undefined,
       remark: form.remark || undefined,
       officialUrl: form.officialUrl || undefined,
@@ -583,10 +721,20 @@ function buildAutoConfigJson(form: ProviderFormState) {
     },
     models: {
       default: form.defaultModel || undefined,
+      main: form.defaultModel || undefined,
+      thinking: form.thinkingModel || undefined,
+      fast: form.fastModel || undefined,
+      strong: form.strongModel || undefined,
       chat: form.chatModel || form.defaultModel || undefined,
       image: form.imageModel || form.defaultModel || undefined,
+      imagePrompt: form.imageModel || form.defaultModel || undefined,
       video: form.videoModel || form.defaultModel || undefined,
+      videoScript: form.videoModel || form.defaultModel || undefined,
       knowledge: form.knowledgeModel || form.defaultModel || undefined
+    },
+    modelAliases: JSON.parse(buildModelAliasesJson(form)),
+    fallback: {
+      enabled: form.enableFallback
     },
     test: {
       model: form.testModel || form.chatModel || form.defaultModel || undefined,
@@ -595,9 +743,7 @@ function buildAutoConfigJson(form: ProviderFormState) {
       degradeThresholdMs: numberOrUndefined(form.testDegradeMs)
     },
     proxy: {
-      url: form.proxyUrl || undefined,
-      username: form.proxyUsername || undefined,
-      passwordSet: Boolean(form.proxyPassword)
+      enabled: false
     },
     billing: {
       costMultiplier: numberOrUndefined(form.costMultiplier),
@@ -611,6 +757,29 @@ function buildAutoConfigJson(form: ProviderFormState) {
 function numberOrUndefined(value: string) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && value.trim() ? numeric : undefined;
+}
+
+function buildModelAliasesJson(form: ProviderFormState) {
+  return JSON.stringify({
+    main: form.defaultModel || undefined,
+    thinking: form.thinkingModel || undefined,
+    fast: form.fastModel || form.defaultModel || undefined,
+    strong: form.strongModel || form.defaultModel || undefined,
+    chat: form.chatModel || form.defaultModel || undefined,
+    imagePrompt: form.imageModel || form.defaultModel || undefined,
+    videoScript: form.videoModel || form.defaultModel || undefined,
+    knowledge: form.knowledgeModel || form.defaultModel || undefined
+  }, null, 2);
+}
+
+function readModelAlias(json: string | null | undefined, key: string) {
+  if (!json) return '';
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    return typeof parsed[key] === 'string' ? parsed[key] as string : '';
+  } catch {
+    return '';
+  }
 }
 
 function defaultAuthHeader(apiFormat?: AiProviderApiFormat | null) {

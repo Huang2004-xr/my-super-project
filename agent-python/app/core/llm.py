@@ -6,7 +6,11 @@ import httpx
 
 
 class LlmError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "UNKNOWN", retryable: bool = False, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.status_code = status_code
 
 
 class LlmClient:
@@ -44,7 +48,7 @@ class LlmClient:
         tool_context: Dict[str, Any],
         provider_config: Optional[Dict[str, Any]] = None,
     ) -> str:
-        if capability == "TEXT_CHAT":
+        if capability == "TEXT_CHAT" and not provider_config:
             quick_answer = self._capability_question_answer(message)
             if quick_answer:
                 return quick_answer
@@ -108,12 +112,26 @@ class LlmClient:
         return content
 
     def _chat_external(self, system_prompt: str, user_prompt: str, provider_config: Dict[str, Any]) -> str:
-        api_format = str(provider_config.get("apiFormat") or "openai_chat_completions").strip()
-        if api_format == "openai_responses":
-            raise LlmError("OpenAI Responses API provider is saved but not enabled for runtime calls yet")
-        if api_format != "openai_chat_completions":
-            raise LlmError(f"unsupported external API format: {api_format}")
+        attempts = [provider_config]
+        if provider_config.get("enableFallback"):
+            fallbacks = provider_config.get("fallbackProviders")
+            if isinstance(fallbacks, list):
+                attempts.extend(item for item in fallbacks if isinstance(item, dict))
 
+        errors = []
+        for index, attempt in enumerate(attempts):
+            try:
+                return self._chat_external_single(system_prompt, user_prompt, attempt)
+            except LlmError as exc:
+                errors.append(f"{attempt.get('name') or 'external'}: [{exc.code}] {exc}")
+                if index == 0 and not provider_config.get("enableFallback"):
+                    raise
+                if not exc.retryable:
+                    raise
+        raise LlmError("all configured external providers failed: " + " | ".join(errors))
+
+    def _chat_external_single(self, system_prompt: str, user_prompt: str, provider_config: Dict[str, Any]) -> str:
+        api_format = str(provider_config.get("apiFormat") or "openai_chat_completions").strip()
         base_url = str(provider_config.get("baseUrl") or "").strip().rstrip("/")
         api_key = str(provider_config.get("apiKey") or "").strip()
         model = str(provider_config.get("model") or "").strip()
@@ -125,11 +143,25 @@ class LlmClient:
         if not model:
             raise LlmError("external provider model is required")
 
+        if api_format == "openai_chat_completions":
+            return self._chat_openai_chat_completions(system_prompt, user_prompt, base_url, api_key, auth_header_name, model)
+        if api_format == "anthropic_messages":
+            return self._chat_anthropic_messages(system_prompt, user_prompt, base_url, api_key, auth_header_name, model)
+        if api_format == "openai_responses":
+            return self._chat_openai_responses(system_prompt, user_prompt, base_url, api_key, auth_header_name, model)
+        raise LlmError(f"unsupported external API format: {api_format}", "PROTOCOL_MISMATCH")
+
+    def _chat_openai_chat_completions(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        base_url: str,
+        api_key: str,
+        auth_header_name: str,
+        model: str,
+    ) -> str:
         headers = {"Content-Type": "application/json"}
-        if auth_header_name.lower() == "authorization":
-            headers["Authorization"] = api_key if api_key.lower().startswith("bearer ") else f"Bearer {api_key}"
-        else:
-            headers[auth_header_name] = api_key
+        self._apply_external_auth(headers, auth_header_name, api_key)
         payload = {
             "model": model,
             "stream": False,
@@ -145,10 +177,9 @@ class LlmClient:
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:
-            detail = exc.response.text.strip()
-            raise LlmError(f"External provider request failed: HTTP {exc.response.status_code}. {detail}") from exc
+            raise self._external_http_error(exc) from exc
         except httpx.HTTPError as exc:
-            raise LlmError(f"External provider request failed: {exc}") from exc
+            raise self._external_transport_error(exc) from exc
 
         content = ""
         choices = data.get("choices") if isinstance(data, dict) else None
@@ -160,12 +191,161 @@ class LlmClient:
             raise LlmError("External provider returned an empty response")
         return content
 
+    def _chat_anthropic_messages(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        base_url: str,
+        api_key: str,
+        auth_header_name: str,
+        model: str,
+    ) -> str:
+        headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
+        self._apply_external_auth(headers, auth_header_name or "x-api-key", api_key)
+        payload = {
+            "model": model,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "max_tokens": 1200,
+            "temperature": 0.4,
+        }
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(self._anthropic_messages_url(base_url), json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise self._external_http_error(exc) from exc
+        except httpx.HTTPError as exc:
+            raise self._external_transport_error(exc) from exc
+
+        content_items = data.get("content") if isinstance(data, dict) else None
+        content = ""
+        if isinstance(content_items, list):
+            parts = []
+            for item in content_items:
+                if isinstance(item, dict) and item.get("type") in (None, "text"):
+                    parts.append(str(item.get("text") or ""))
+            content = "\n".join(part for part in parts if part.strip())
+        content = self._strip_thinking(str(content)).strip()
+        if not content:
+            raise LlmError("External provider returned an empty response")
+        return content
+
+    def _chat_openai_responses(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        base_url: str,
+        api_key: str,
+        auth_header_name: str,
+        model: str,
+    ) -> str:
+        headers = {"Content-Type": "application/json"}
+        self._apply_external_auth(headers, auth_header_name, api_key)
+        payload = {
+            "model": model,
+            "input": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_output_tokens": 1200,
+        }
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(self._responses_url(base_url), json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise self._external_http_error(exc) from exc
+        except httpx.HTTPError as exc:
+            raise self._external_transport_error(exc) from exc
+
+        content = str(data.get("output_text") or "").strip() if isinstance(data, dict) else ""
+        if not content and isinstance(data, dict):
+            content = self._extract_responses_text(data)
+        content = self._strip_thinking(content).strip()
+        if not content:
+            raise LlmError("External provider returned an empty response")
+        return content
+
+    def _apply_external_auth(self, headers: Dict[str, str], auth_header_name: str, api_key: str) -> None:
+        header = (auth_header_name or "Authorization").strip()
+        if header.lower() == "authorization":
+            headers["Authorization"] = api_key if api_key.lower().startswith("bearer ") else f"Bearer {api_key}"
+        else:
+            headers[header] = api_key
+
     def _external_chat_url(self, base_url: str) -> str:
         if base_url.endswith("/chat/completions"):
             return base_url
         if base_url.endswith("/v1"):
             return f"{base_url}/chat/completions"
         return f"{base_url}/v1/chat/completions"
+
+    def _anthropic_messages_url(self, base_url: str) -> str:
+        if base_url.endswith("/messages"):
+            return base_url
+        if base_url.endswith("/v1"):
+            return f"{base_url}/messages"
+        return f"{base_url}/v1/messages"
+
+    def _responses_url(self, base_url: str) -> str:
+        if base_url.endswith("/responses"):
+            return base_url
+        if base_url.endswith("/v1"):
+            return f"{base_url}/responses"
+        return f"{base_url}/v1/responses"
+
+    def _external_http_error(self, exc: httpx.HTTPStatusError) -> LlmError:
+        status = exc.response.status_code
+        detail = self._redact_secret(exc.response.text.strip())
+        code = self._classify_external_status(status, detail)
+        retryable = status in (408, 409, 429, 500, 502, 503, 504, 529)
+        return LlmError(f"External provider request failed: HTTP {status}. {detail}", code, retryable, status)
+
+    def _external_transport_error(self, exc: httpx.HTTPError) -> LlmError:
+        code = "TIMEOUT" if isinstance(exc, (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout)) else "NETWORK"
+        return LlmError(f"External provider request failed: {exc}", code, True)
+
+    def _classify_external_status(self, status: int, detail: str) -> str:
+        text = detail.lower()
+        if status in (401, 403):
+            return "AUTH_FAILED"
+        if status == 404:
+            return "ENDPOINT_NOT_FOUND"
+        if status == 429:
+            return "RATE_LIMITED"
+        if status in (502, 503, 529):
+            return "OVERLOADED"
+        if "model_not_found" in text or "model not found" in text or "not supported model" in text or "invalid model" in text:
+            return "MODEL_NOT_FOUND"
+        if "insufficient" in text or "balance" in text or "quota" in text or "billing" in text:
+            return "BALANCE_OR_QUOTA"
+        if "unsupported api" in text or "unknown parameter" in text or "protocol" in text:
+            return "PROTOCOL_MISMATCH"
+        return "UNKNOWN"
+
+    def _redact_secret(self, text: str) -> str:
+        return re.sub(r"(sk-|Bearer\s+)[A-Za-z0-9_\-]{12,}", r"\1***", text)
+
+    def _extract_responses_text(self, data: Dict[str, Any]) -> str:
+        output = data.get("output")
+        if not isinstance(output, list):
+            return ""
+        parts = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content_items = item.get("content")
+            if not isinstance(content_items, list):
+                continue
+            for content_item in content_items:
+                if isinstance(content_item, dict):
+                    text = content_item.get("text") or content_item.get("content")
+                    if text:
+                        parts.append(str(text))
+        return "\n".join(parts)
 
     def _model_available(self) -> bool:
         with httpx.Client(timeout=min(self.timeout_seconds, 5.0)) as client:
@@ -176,7 +356,7 @@ class LlmClient:
 
     def _system_prompt(self, capability: str) -> str:
         common = (
-            "你是超级Agent助手。请用简体中文回答，表达清晰、可执行、不要编造真实文件地址。"
+            "你是超级 Agent 助手。请用简体中文回答，表达清晰、可执行、不要编造真实文件地址。"
             "不要使用 emoji 或特殊表情符号。"
             "如果能力是图片或视频创作，本地版本只输出文本方案，不声称已经生成真实媒体文件。"
             "不要暴露工具调用、Trace、日志、模型参数、Provider、JSON 调试内容或后端实现细节。"
@@ -197,13 +377,13 @@ class LlmClient:
 
         image_note = ""
         if tool_context.get("referenceImage"):
-            image_note = f"\n参考图片资产ID：{tool_context.get('referenceImage')}"
+            image_note = f"\n参考图片资产 ID：{tool_context.get('referenceImage')}"
 
         if capability == "VIDEO_CREATION":
             return (
                 f"用户目标：{message}{image_note}\n"
                 f"{memory_context}"
-                "请输出：1. 核心创意 2. 30秒脚本 3. 分镜表 4. 口播文案 5. 剪辑/发布建议。"
+                "请输出：1. 核心创意 2. 30 秒脚本 3. 分镜表 4. 口播文案 5. 剪辑/发布建议。"
             )
 
         if capability == "IMAGE_CREATION":

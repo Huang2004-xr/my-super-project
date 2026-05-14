@@ -4,6 +4,12 @@ import com.example.agentplatform.dto.AiProviderRequest;
 import com.example.agentplatform.dto.AiProviderResponse;
 import com.example.agentplatform.dto.AiProviderTestResponse;
 import com.example.agentplatform.model.AiProviderEntity;
+import com.example.agentplatform.service.aiprovider.AiProviderProtocolAdapter;
+import com.example.agentplatform.service.aiprovider.ProviderErrorCode;
+import com.example.agentplatform.service.aiprovider.ProviderTestRequest;
+import com.example.agentplatform.service.aiprovider.ProviderTestResult;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,16 +18,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpStatusCodeException;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
 @Service
 public class AiProviderService {
@@ -32,12 +33,21 @@ public class AiProviderService {
 
     private final AiProviderRepository repository;
     private final CryptoService cryptoService;
-    private final RestTemplate restTemplate;
+    private final List<AiProviderProtocolAdapter> protocolAdapters;
+    private final AiProviderModelResolver modelResolver;
+    private final ObjectMapper objectMapper;
 
-    public AiProviderService(AiProviderRepository repository, CryptoService cryptoService, RestTemplate restTemplate) {
+    public AiProviderService(
+            AiProviderRepository repository,
+            CryptoService cryptoService,
+            List<AiProviderProtocolAdapter> protocolAdapters,
+            AiProviderModelResolver modelResolver,
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.cryptoService = cryptoService;
-        this.restTemplate = restTemplate;
+        this.protocolAdapters = protocolAdapters;
+        this.modelResolver = modelResolver;
+        this.objectMapper = objectMapper;
     }
 
     public List<AiProviderResponse> list(String userId) {
@@ -75,6 +85,9 @@ public class AiProviderService {
         entity.setLastTestedAt(result.testedAt);
         entity.setLastTestStatus(result.status);
         entity.setLastTestMessage(result.message);
+        entity.setLastTestErrorCode(result.errorCode);
+        entity.setLastTestHttpStatus(result.httpStatus);
+        entity.setLastTestRequestId(result.providerRequestId);
         entity.setUpdatedAt(Instant.now());
         repository.save(entity);
         return result;
@@ -89,9 +102,13 @@ public class AiProviderService {
                 fallback.put("providerType", "ollama");
                 fallback.put("name", "Local Ollama");
                 fallback.put("capability", capability);
+                fallback.put("model", "qwen3:4b");
+                fallback.put("lastTestStatus", null);
+                fallback.put("fallbackEnabled", false);
                 result.put(capability, fallback);
             } else {
                 summary.remove("apiKey");
+                summary.remove("fallbackProviders");
                 result.put(capability, summary);
             }
         }
@@ -111,7 +128,16 @@ public class AiProviderService {
         if (selected == null) {
             return null;
         }
-        return toInternalConfig(selected, capability);
+        Map<String, Object> config = toInternalConfig(selected, capability);
+        if (selected.isEnableFallback()) {
+            List<Map<String, Object>> fallbacks = providers.stream()
+                    .filter(item -> !item.getProviderId().equals(selected.getProviderId()))
+                    .filter(item -> capabilities(item).contains(capability) || capabilities(item).contains("ALL"))
+                    .map(item -> toInternalConfig(item, capability))
+                    .collect(Collectors.toList());
+            config.put("fallbackProviders", fallbacks);
+        }
+        return config;
     }
 
     private AiProviderEntity findOwned(String userId, String providerId) {
@@ -125,6 +151,8 @@ public class AiProviderService {
         }
         entity.setName(required(request.name, "name"));
         entity.setProviderType(defaulted(request.providerType, "external"));
+        entity.setRegion(defaulted(request.region, "CUSTOM"));
+        entity.setPresetKey(clean(request.presetKey));
         String apiFormat = defaulted(request.apiFormat, "openai_chat_completions");
         if (!SUPPORTED_API_FORMATS.contains(apiFormat)) {
             throw new IllegalArgumentException("unsupported apiFormat: " + apiFormat);
@@ -146,7 +174,11 @@ public class AiProviderService {
         entity.setKnowledgeModel(clean(request.knowledgeModel));
         entity.setOfficialUrl(clean(request.officialUrl));
         entity.setRemark(clean(request.remark));
-        entity.setConfigJson(clean(request.configJson));
+        entity.setConfigJson(validateJson(request.configJson, "configJson"));
+        entity.setModelAliases(validateJson(request.modelAliases, "modelAliases"));
+        if (request.enableFallback != null) {
+            entity.setEnableFallback(request.enableFallback);
+        }
         if (request.enabled != null) {
             entity.setEnabled(request.enabled);
         }
@@ -154,64 +186,35 @@ public class AiProviderService {
 
     private AiProviderTestResponse testEntity(AiProviderEntity entity) {
         Instant testedAt = Instant.now();
-        String model = firstNonBlank(extractJsonString(entity.getConfigJson(), "model"), modelForCapability(entity, "TEXT_CHAT"));
+        String model = firstNonBlank(modelResolver.jsonText(entity.getConfigJson(), "test", "model"), modelForCapability(entity, "TEXT_CHAT"));
         if (model == null || model.trim().isEmpty()) {
-            return new AiProviderTestResponse(false, "FAILED", "model is required for connection test", testedAt);
+            return new AiProviderTestResponse(false, "FAILED", "model is required for connection test",
+                    ProviderErrorCode.MODEL_NOT_FOUND.name(), null, null, testedAt);
         }
         String apiFormat = defaulted(entity.getApiFormat(), "openai_chat_completions");
-        if (!"openai_chat_completions".equals(apiFormat)) {
-            return new AiProviderTestResponse(false, "FAILED", "test is only implemented for OpenAI Chat Completions in this version", testedAt);
+        Optional<AiProviderProtocolAdapter> adapter = protocolAdapters.stream()
+                .filter(item -> item.supports(apiFormat))
+                .findFirst();
+        if (adapter.isEmpty()) {
+            return new AiProviderTestResponse(false, "FAILED", "unsupported apiFormat: " + apiFormat,
+                    ProviderErrorCode.PROTOCOL_MISMATCH.name(), null, null, testedAt);
         }
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            applyAuthHeader(headers, entity);
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", model);
-            body.put("messages", Arrays.asList(
-                    message("system", "You are a connection test."),
-                    message("user", "Reply with ok.")));
-            body.put("max_tokens", 8);
-            restTemplate.postForEntity(endpoint(entity.getBaseUrl(), "/chat/completions"),
-                    new HttpEntity<>(body, headers), String.class);
-            return new AiProviderTestResponse(true, "SUCCESS", "connection test succeeded", testedAt);
-        } catch (HttpStatusCodeException ex) {
-            return new AiProviderTestResponse(false, "FAILED", readableProviderError(ex), testedAt);
-        } catch (RestClientException ex) {
-            return new AiProviderTestResponse(false, "FAILED", "connection test failed: " + ex.getMessage(), testedAt);
+        String requestId = UUID.randomUUID().toString();
+        ProviderTestResult result = adapter.get().test(new ProviderTestRequest(
+                entity.getBaseUrl(),
+                cryptoService.decrypt(entity.getApiKeyCiphertext()),
+                defaultAuthHeader(entity.getAuthHeaderName(), entity.getApiFormat()),
+                model,
+                modelResolver.jsonText(entity.getConfigJson(), "test", "prompt"),
+                requestId));
+        if (result.isOk()) {
+            return new AiProviderTestResponse(true, "SUCCESS", "connection test succeeded",
+                    null, result.getHttpStatus(), firstNonBlank(result.getProviderRequestId(), requestId), testedAt);
         }
-    }
-
-    private String readableProviderError(HttpStatusCodeException ex) {
-        String body = ex.getResponseBodyAsString();
-        String normalized = body == null ? "" : body
-                .replace("<EOL>", " ")
-                .replace("\\n", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-        String message = extractJsonString(normalized, "message");
-        String param = extractJsonString(normalized, "param");
-        if (message != null && message.toLowerCase().contains("not supported model")) {
-            return "model is not supported by this endpoint"
-                    + (param == null ? "" : ": " + param)
-                    + ". Please use a model name listed by the provider.";
-        }
-        if (message != null) {
-            return "connection test failed: HTTP " + ex.getRawStatusCode() + ". " + message
-                    + (param == null ? "" : " (" + param + ")");
-        }
-        return "connection test failed: HTTP " + ex.getRawStatusCode()
-                + (normalized.isEmpty() ? "" : ". " + normalized);
-    }
-
-    private String extractJsonString(String text, String key) {
-        if (text == null || text.isEmpty()) {
-            return null;
-        }
-        java.util.regex.Matcher matcher = java.util.regex.Pattern
-                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]*)\"")
-                .matcher(text);
-        return matcher.find() ? matcher.group(1) : null;
+        String message = improveProviderMessage(entity, model, result.getMessage());
+        return new AiProviderTestResponse(false, "FAILED", message,
+                result.getErrorCode() == null ? ProviderErrorCode.UNKNOWN.name() : result.getErrorCode().name(),
+                result.getHttpStatus(), firstNonBlank(result.getProviderRequestId(), requestId), testedAt);
     }
 
     private Map<String, Object> toInternalConfig(AiProviderEntity entity, String capability) {
@@ -224,8 +227,18 @@ public class AiProviderService {
         config.put("baseUrl", entity.getBaseUrl());
         config.put("apiKey", cryptoService.decrypt(entity.getApiKeyCiphertext()));
         config.put("model", modelForCapability(entity, capability));
+        config.put("requestId", UUID.randomUUID().toString());
         config.put("capability", capability);
         config.put("configJson", entity.getConfigJson());
+        config.put("region", defaulted(entity.getRegion(), "CUSTOM"));
+        config.put("presetKey", entity.getPresetKey());
+        config.put("modelAliases", entity.getModelAliases());
+        config.put("enableFallback", entity.isEnableFallback());
+        config.put("fallbackEnabled", entity.isEnableFallback());
+        config.put("lastTestStatus", entity.getLastTestStatus());
+        config.put("lastTestedAt", entity.getLastTestedAt());
+        config.put("lastTestMessage", entity.getLastTestMessage());
+        config.put("lastTestErrorCode", entity.getLastTestErrorCode());
         return config;
     }
 
@@ -235,6 +248,8 @@ public class AiProviderService {
         dto.userId = entity.getUserId();
         dto.name = entity.getName();
         dto.providerType = entity.getProviderType();
+        dto.region = defaulted(entity.getRegion(), "CUSTOM");
+        dto.presetKey = entity.getPresetKey();
         dto.apiFormat = defaulted(entity.getApiFormat(), "openai_chat_completions");
         dto.authHeaderName = defaultAuthHeader(entity.getAuthHeaderName(), dto.apiFormat);
         dto.capabilities = capabilities(entity);
@@ -248,27 +263,23 @@ public class AiProviderService {
         dto.officialUrl = entity.getOfficialUrl();
         dto.remark = entity.getRemark();
         dto.configJson = entity.getConfigJson();
+        dto.modelAliases = entity.getModelAliases();
+        dto.enableFallback = entity.isEnableFallback();
         dto.enabled = entity.isEnabled();
         dto.apiKeySet = entity.getApiKeyCiphertext() != null && !entity.getApiKeyCiphertext().isEmpty();
         dto.lastTestedAt = entity.getLastTestedAt();
         dto.lastTestStatus = entity.getLastTestStatus();
         dto.lastTestMessage = entity.getLastTestMessage();
+        dto.lastTestErrorCode = entity.getLastTestErrorCode();
+        dto.lastTestHttpStatus = entity.getLastTestHttpStatus();
+        dto.lastTestRequestId = entity.getLastTestRequestId();
         dto.createdAt = entity.getCreatedAt();
         dto.updatedAt = entity.getUpdatedAt();
         return dto;
     }
 
     private String modelForCapability(AiProviderEntity entity, String capability) {
-        if ("IMAGE_CREATION".equals(capability)) {
-            return firstNonBlank(entity.getImageModel(), entity.getDefaultModel(), entity.getModelName());
-        }
-        if ("VIDEO_CREATION".equals(capability)) {
-            return firstNonBlank(entity.getVideoModel(), entity.getDefaultModel(), entity.getModelName());
-        }
-        if ("KNOWLEDGE_RETRIEVAL".equals(capability)) {
-            return firstNonBlank(entity.getKnowledgeModel(), entity.getDefaultModel(), entity.getModelName());
-        }
-        return firstNonBlank(entity.getChatModel(), entity.getDefaultModel(), entity.getModelName());
+        return modelResolver.resolve(entity, capability);
     }
 
     private List<String> capabilities(AiProviderEntity entity) {
@@ -297,34 +308,6 @@ public class AiProviderService {
             return "ALL";
         }
         return String.join(",", values);
-    }
-
-    private void applyAuthHeader(HttpHeaders headers, AiProviderEntity entity) {
-        String key = cryptoService.decrypt(entity.getApiKeyCiphertext());
-        String headerName = defaultAuthHeader(entity.getAuthHeaderName(), entity.getApiFormat());
-        if ("Authorization".equalsIgnoreCase(headerName)) {
-            headers.set(HttpHeaders.AUTHORIZATION, key.toLowerCase().startsWith("bearer ") ? key : "Bearer " + key);
-            return;
-        }
-        headers.set(headerName, key);
-    }
-
-    private Map<String, String> message(String role, String content) {
-        Map<String, String> item = new LinkedHashMap<>();
-        item.put("role", role);
-        item.put("content", content);
-        return item;
-    }
-
-    private String endpoint(String baseUrl, String suffix) {
-        String normalized = stripTrailingSlash(baseUrl);
-        if (normalized.endsWith("/chat/completions")) {
-            return normalized;
-        }
-        if (normalized.endsWith("/v1")) {
-            return normalized + suffix;
-        }
-        return normalized + "/v1" + suffix;
     }
 
     private String defaultAuthHeader(String value, String apiFormat) {
@@ -370,5 +353,28 @@ public class AiProviderService {
             cleaned = cleaned.substring(0, cleaned.length() - 1);
         }
         return cleaned;
+    }
+
+    private String validateJson(String value, String field) {
+        String cleaned = clean(value);
+        if (cleaned == null) {
+            return null;
+        }
+        try {
+            objectMapper.readTree(cleaned);
+            return cleaned;
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException(field + " must be valid JSON");
+        }
+    }
+
+    private String improveProviderMessage(AiProviderEntity entity, String model, String message) {
+        if ("mimo-token-plan-cn".equals(entity.getPresetKey())
+                && model != null
+                && !"mimo-v2.5-pro".equals(model)
+                && "mimo-v2.5-pro".equalsIgnoreCase(model)) {
+            return message + "; MiMo Token Plan CN 通常使用小写模型 id: mimo-v2.5-pro";
+        }
+        return message;
     }
 }

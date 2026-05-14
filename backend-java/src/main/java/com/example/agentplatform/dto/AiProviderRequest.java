@@ -5,6 +5,8 @@ import java.util.List;
 public class AiProviderRequest {
     public String name;
     public String providerType;
+    public String region;
+    public String presetKey;
     public String apiFormat;
     public String authHeaderName;
     public List<String> capabilities;
@@ -19,5 +21,7 @@ public class AiProviderRequest {
     public String officialUrl;
     public String remark;
     public String configJson;
+    public String modelAliases;
+    public Boolean enableFallback;
     public Boolean enabled;
 }

@@ -82,12 +82,6 @@ public class ResourceController {
         knowledgeBaseService.deleteStoredFiles(storagePaths);
     }
 
-    @PostMapping("/knowledge-bases/{id}/documents")
-    public KnowledgeDocumentEntity createKnowledgeDocument(@PathVariable String id, @RequestBody Map<String, Object> body,
-            HttpServletRequest request) {
-        throw new IllegalArgumentException("please use /documents/upload to create and index knowledge documents");
-    }
-
     @GetMapping("/knowledge-bases/{id}/documents")
     public List<KnowledgeDocumentEntity> listKnowledgeDocuments(@PathVariable String id, HttpServletRequest request) {
         UserEntity user = authService.requireUser(request);
