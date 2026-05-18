@@ -49,13 +49,9 @@ class LlmClient:
         provider_config: Optional[Dict[str, Any]] = None,
     ) -> str:
         if capability == "TEXT_CHAT":
-            memory_answer = self._recent_user_message_answer(message, tool_context)
-            if memory_answer:
-                return memory_answer
-        if capability == "TEXT_CHAT" and not provider_config:
-            quick_answer = self._capability_question_answer(message)
-            if quick_answer:
-                return quick_answer
+            local_answer = self._local_intent_answer(message, tool_context, provider_config)
+            if local_answer:
+                return local_answer
         system_prompt = self._system_prompt(capability)
         user_prompt = self._user_prompt(capability, message, tool_context)
         return self.chat(system_prompt, user_prompt, provider_config)
@@ -359,25 +355,26 @@ class LlmClient:
         return any(item.get("name") == self.model for item in models)
 
     def _system_prompt(self, capability: str) -> str:
-        common = (
-            "你是超级 Agent 助手。请用简体中文回答，表达清晰、可执行、不要编造真实文件地址。"
-            "不要使用 emoji 或特殊表情符号。"
-            "如果能力是图片或视频创作，本地版本只输出文本方案，不声称已经生成真实媒体文件。"
-            "不要暴露工具调用、Trace、日志、模型参数、Provider、JSON 调试内容或后端实现细节。"
-        )
         prompts = {
-            "TEXT_CHAT": "你负责文字沟通，直接回答用户问题。用户询问能力时只做简洁说明，不展开创作模板。",
-            "VIDEO_CREATION": "你负责短视频创作，输出脚本、分镜、口播文案、节奏建议和下一步执行建议。",
-            "IMAGE_CREATION": "你负责图片创作，输出可用于图像生成模型的提示词、画面构图、风格、色彩和负面提示词。",
-            "KNOWLEDGE_RETRIEVAL": "你负责知识库问答，只能基于给定知识片段总结回答；片段不足时说明不足。",
+            "TEXT_CHAT": "你是超级 Agent 的文字对话助手。用简体中文直接回答，表达清晰、可执行，不暴露工具调用、Trace、日志、Provider、JSON 调试内容或后端实现细节。",
+            "KNOWLEDGE_RETRIEVAL": "你是知识库问答助手。只基于给定知识片段回答；片段不足时说明不足，不编造来源。",
+            "IMAGE_CREATION": "你是图片创作助手。输出可用于图像生成模型的提示词、构图、风格、色彩和负面提示词；不要声称已生成真实图片文件。",
+            "VIDEO_CREATION": "你是短视频创作助手。输出脚本、分镜、口播文案、节奏建议和下一步执行建议；不要声称已生成真实视频文件。",
         }
-        return f"{common}\n{prompts.get(capability, prompts['TEXT_CHAT'])}"
+        return prompts.get(capability, prompts["TEXT_CHAT"])
 
     def _user_prompt(self, capability: str, message: str, tool_context: Dict[str, Any]) -> str:
         memory_context = self._memory_context(tool_context)
+        if capability == "TEXT_CHAT":
+            return f"{memory_context}用户消息：{message}\n请直接回答。"
+
         if capability == "KNOWLEDGE_RETRIEVAL":
             hits = "\n".join(f"- {item}" for item in tool_context.get("hits", []))
-            return f"{memory_context}用户问题：{message}\n\n命中的知识库片段：\n{hits or '- 无命中片段'}\n\n请给出回答。"
+            return (
+                f"{memory_context}用户问题：{message}\n\n"
+                f"知识片段：\n{hits or '- 无命中片段'}\n\n"
+                "请基于知识片段回答；片段不足时说明不足。"
+            )
 
         image_note = ""
         if tool_context.get("referenceImage"):
@@ -385,55 +382,177 @@ class LlmClient:
 
         if capability == "VIDEO_CREATION":
             return (
-                f"用户目标：{message}{image_note}\n"
-                f"{memory_context}"
-                "请输出：1. 核心创意 2. 30 秒脚本 3. 分镜表 4. 口播文案 5. 剪辑/发布建议。"
+                f"{memory_context}用户目标：{message}{image_note}\n"
+                "请输出：核心创意、30 秒脚本、分镜表、口播文案、剪辑/发布建议。"
             )
 
         if capability == "IMAGE_CREATION":
             return (
-                f"用户目标：{message}{image_note}\n"
-                f"{memory_context}"
-                "请输出：1. 中文设计说明 2. 可直接给图像模型使用的提示词 3. 风格/构图/色彩 4. 负面提示词。"
+                f"{memory_context}用户目标：{message}{image_note}\n"
+                "请输出：中文设计说明、可直接用于图像模型的提示词、风格/构图/色彩、负面提示词。"
             )
 
-        knowledge_note = "已启用内置知识库作为参考。" if tool_context.get("usedKnowledgeBase") else ""
-        return (
-            f"{memory_context}用户消息：{message}\n{image_note}\n{knowledge_note}\n"
-            "请自然回复。若用户只是在问你是否具备某项能力，请用 1-3 句话直接说明当前能做什么和限制，"
-            "不要生成图片提示词、视频脚本或执行方案。"
-        )
+        return f"{memory_context}用户消息：{message}\n请直接回答。"
 
     def _memory_context(self, tool_context: Dict[str, Any]) -> str:
         summary = str(tool_context.get("conversationMemory") or "").strip()
         recent_messages = tool_context.get("recentMessages") or []
         lines = []
-        for item in recent_messages:
-            if not isinstance(item, dict):
-                continue
-            role = str(item.get("role") or "UNKNOWN")
-            content = str(item.get("content") or "").strip()
-            if content:
-                lines.append(f"{role}: {content}")
+        if isinstance(recent_messages, list):
+            for item in recent_messages[-6:]:
+                if not isinstance(item, dict):
+                    continue
+                role = str(item.get("role") or "UNKNOWN")
+                content = str(item.get("content") or "").strip()
+                if content:
+                    lines.append(f"{role}: {content}")
         if not summary and not lines:
             return ""
-        recent = "\n".join(lines[-8:])
-        return (
-            "以下是当前对话的记忆上下文，请用于理解代词、前文问题和用户偏好，不要在回答中复述整段记忆：\n"
-            f"长期摘要：{summary or '无'}\n"
-            f"最近对话：\n{recent or '无'}\n\n"
-        )
+        parts = []
+        if summary:
+            parts.append(f"对话记忆：{summary}")
+        if lines:
+            parts.append("最近对话：\n" + "\n".join(lines))
+        return "\n".join(parts) + "\n\n"
 
     def _strip_thinking(self, content: str) -> str:
         return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE)
 
-    def _recent_user_message_answer(self, message: str, tool_context: Dict[str, Any]) -> str:
-        if not self._asks_recent_user_message(message):
-            return ""
+    def _local_intent_answer(
+        self,
+        message: str,
+        tool_context: Dict[str, Any],
+        provider_config: Optional[Dict[str, Any]],
+    ) -> str:
+        for _intent_name, matcher, handler in self._local_intent_table():
+            if matcher(message):
+                return handler(message, tool_context, provider_config)
+        return ""
+
+    def _local_intent_table(self):
+        return (
+            ("recent_user_message", self._asks_recent_user_message, self._answer_recent_user_message),
+            ("current_model", self._asks_current_model, self._answer_current_model),
+            ("current_config", self._asks_current_config, self._answer_current_config),
+            ("capabilities", self._asks_capabilities, self._answer_capabilities),
+        )
+
+    def _answer_recent_user_message(
+        self,
+        message: str,
+        tool_context: Dict[str, Any],
+        provider_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
         previous = self._latest_recent_message(tool_context, "USER")
         if previous:
             return f"你刚才问的是：“{previous}”。"
         return "我还没有看到你之前的提问。"
+
+    def _asks_current_model(self, message: str) -> bool:
+        normalized = re.sub(r"\s+", "", message or "")
+        return any(
+            term in normalized
+            for term in (
+                "你是什么模型",
+                "你是哪个模型",
+                "你用什么模型",
+                "你现在是什么模型",
+                "现在用的是什么模型",
+                "当前模型",
+                "现在模型",
+                "使用什么模型",
+                "用的什么模型",
+                "模型是什么",
+            )
+        )
+
+    def _answer_current_model(
+        self,
+        message: str,
+        tool_context: Dict[str, Any],
+        provider_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if provider_config:
+            name = str(provider_config.get("name") or "外部 Provider").strip()
+            model = str(provider_config.get("model") or "未配置").strip()
+            api_format = str(provider_config.get("apiFormat") or "openai_chat_completions").strip()
+            return f"当前使用外部 Provider「{name}」，模型：{model}，协议：{api_format}。"
+        return f"当前使用本地 Ollama，模型：{self.model}。"
+
+    def _asks_current_config(self, message: str) -> bool:
+        normalized = re.sub(r"\s+", "", message or "")
+        return any(
+            term in normalized
+            for term in (
+                "当前配置",
+                "现在配置",
+                "配置是什么",
+                "你当前配置",
+                "使用配置",
+                "模型配置",
+                "provider配置",
+                "供应商配置",
+                "api配置",
+                "外部provider",
+                "当前供应商",
+            )
+        )
+
+    def _answer_current_config(
+        self,
+        message: str,
+        tool_context: Dict[str, Any],
+        provider_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if provider_config:
+            name = str(provider_config.get("name") or "外部 Provider").strip()
+            model = str(provider_config.get("model") or "未配置").strip()
+            api_format = str(provider_config.get("apiFormat") or "openai_chat_completions").strip()
+            base_url = str(provider_config.get("baseUrl") or "未配置").strip()
+            fallback = "开启" if provider_config.get("enableFallback") else "关闭"
+            return (
+                f"当前配置：外部 Provider「{name}」，模型：{model}，协议：{api_format}，"
+                f"Base URL：{base_url}，故障回退：{fallback}。API Key 不会在对话中显示。"
+            )
+        return (
+            f"当前配置：本地 Ollama，模型：{self.model}，Base URL：{self.base_url}，"
+            f"上下文窗口：{self.num_ctx}。"
+        )
+
+    def _asks_capabilities(self, message: str) -> bool:
+        normalized = re.sub(r"\s+", "", message or "")
+        return any(
+            term in normalized
+            for term in (
+                "你能做什么",
+                "你会做什么",
+                "你可以做什么",
+                "你有什么能力",
+                "支持什么",
+                "你支持",
+                "能干什么",
+                "可以干什么",
+                "能做哪些",
+                "可以做哪些",
+                "你会哪些",
+            )
+        )
+
+    def _answer_capabilities(
+        self,
+        message: str,
+        tool_context: Dict[str, Any],
+        provider_config: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        return (
+            "我可以处理文字问答、图片创作提示词、视频脚本/分镜、知识库问答这几类任务。"
+            "当前原型主要返回文本结果；真实图片或视频文件生成需要接入对应媒体生成服务。"
+        )
+
+    def _recent_user_message_answer(self, message: str, tool_context: Dict[str, Any]) -> str:
+        if not self._asks_recent_user_message(message):
+            return ""
+        return self._answer_recent_user_message(message, tool_context)
 
     def _asks_recent_user_message(self, message: str) -> bool:
         normalized = re.sub(r"\s+", "", message or "")
